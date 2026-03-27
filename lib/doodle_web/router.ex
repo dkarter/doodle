@@ -17,7 +17,9 @@ defmodule DoodleWeb.Router do
   scope "/", DoodleWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", CounterLive
+    get "/home", PageController, :home
+    live "/counter", CounterLive
   end
 
   # Other scopes may use custom stacks.

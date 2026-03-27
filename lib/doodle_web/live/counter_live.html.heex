@@ -1,0 +1,40 @@
+<Layouts.app flash={@flash}>
+  <section class="mx-auto flex w-full max-w-md flex-col gap-6 rounded-3xl border border-base-300 bg-base-200/70 p-8 shadow-xl backdrop-blur-sm">
+    <div class="space-y-2 text-center">
+      <p class="text-xs font-semibold uppercase tracking-[0.24em] text-base-content/60">
+        Live Counter
+      </p>
+      <h1 class="text-3xl font-semibold text-base-content">Persistent Counter</h1>
+      <p class="text-sm text-base-content/70">
+        The value is stored in the database after every click.
+      </p>
+    </div>
+
+    <div
+      id="counter-value"
+      class="rounded-2xl border border-base-300 bg-base-100 p-6 text-center text-6xl font-bold tabular-nums text-base-content transition-colors duration-200"
+    >
+      {@counter.value}
+    </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      <button
+        id="counter-down"
+        type="button"
+        phx-click="decrement"
+        class="rounded-xl border border-base-300 bg-base-100 px-4 py-3 text-lg font-semibold text-base-content transition hover:-translate-y-0.5 hover:border-red-400 hover:text-red-500"
+      >
+        Down
+      </button>
+
+      <button
+        id="counter-up"
+        type="button"
+        phx-click="increment"
+        class="rounded-xl border border-base-300 bg-base-100 px-4 py-3 text-lg font-semibold text-base-content transition hover:-translate-y-0.5 hover:border-emerald-400 hover:text-emerald-600"
+      >
+        Up
+      </button>
+    </div>
+  </section>
+</Layouts.app>
