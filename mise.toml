@@ -1,5 +1,7 @@
 [tools]
 "github:crate-ci/committed" = "latest"
+"npm:opencode-ai" = "latest"
+bun = "latest"
 docker-cli = "latest"
 dprint = "latest"
 elixir = "1.20.0-rc.3-otp-28"
@@ -8,6 +10,9 @@ fnox = "latest"
 gitleaks = "latest"
 lefthook = "latest"
 pitchfork = "latest"
+
+[settings]
+npm.bun = true
 
 [hooks]
 postinstall = "lefthook install"
