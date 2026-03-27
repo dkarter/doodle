@@ -1,0 +1,17 @@
+{
+  "name": "doodle-e2b-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sandbox": "bun run sandbox.ts",
+    "cleanup": "bun run cleanup.ts",
+    "build-template": "bun run build-template.ts"
+  },
+  "dependencies": {
+    "e2b": "^2.6.4"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.2"
+  }
+}

@@ -24,3 +24,27 @@ run = "dprint fmt"
 [tasks.fmt-check]
 description = "Checks formatting and fails on differences"
 run = "dprint check"
+
+[tasks.sandbox]
+description = "Create and start E2B sandbox"
+run = "fnox exec -- sh -lc 'cd tools/e2b && E2B_TEMPLATE=${E2B_TEMPLATE:-doodle-sandbox} bun run sandbox.ts up'"
+
+[tasks.sandbox-template-build]
+description = "Build E2B high-memory template"
+run = "fnox exec -- sh -lc 'cd tools/e2b && bun run build-template.ts'"
+
+[tasks.sandbox-cleanup]
+description = "Dry-run cleanup of old E2B sandboxes"
+run = "fnox exec -- sh -lc 'cd tools/e2b && bun run cleanup.ts'"
+
+[tasks.sandbox-cleanup-exec]
+description = "Delete old E2B sandboxes"
+run = "fnox exec -- sh -lc 'cd tools/e2b && bun run cleanup.ts --execute --include-running'"
+
+[tasks.sandbox-clear-snapshot]
+description = "Clear saved E2B snapshot pointer"
+run = "rm -f tools/e2b/.last_snapshot_id"
+
+[tasks.compose-bg]
+description = "Start docker compose postgres"
+run = "docker compose up -d postgres"

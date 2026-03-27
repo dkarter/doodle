@@ -6,3 +6,4 @@ keychain = { type = "keychain", service = "fnox" }
 
 [secrets]
 OP_SERVICE_ACCOUNT_TOKEN = { provider = "keychain", value = "OP_SERVICE_ACCOUNT_TOKEN" }
+E2B_API_KEY = { provider = "onepass", value = "op://fnox/e2b-doodle-api-key/credential" }
