@@ -16,7 +16,7 @@ This is a web application written using the Phoenix web framework.
 - Out of the box, `core_components.ex` imports an `<.icon name="hero-x-mark" class="w-5 h-5"/>` component for hero icons. **Always** use the `<.icon>` component for icons, **never** use `Heroicons` modules or similar
 - **Always** use the imported `<.input>` component for form inputs from `core_components.ex` when available. `<.input>` is imported and using it will save steps and prevent errors
 - If you override the default input classes (`<.input class="myclass px-2 py-1 rounded-lg">)`) class with your own values, no default classes are inherited, so your
-custom classes must fully style the input
+  custom classes must fully style the input
 
 ### JS and CSS guidelines
 
@@ -43,10 +43,10 @@ custom classes must fully style the input
 - Ensure **clean typography, spacing, and layout balance** for a refined, premium look
 - Focus on **delightful details** like hover effects, loading states, and smooth page transitions
 
-
 <!-- usage-rules-start -->
 
 <!-- phoenix:elixir-start -->
+
 ## Elixir guidelines
 
 - Elixir lists **do not support index based access via the access syntax**
@@ -64,7 +64,7 @@ custom classes must fully style the input
       Enum.at(mylist, i)
 
 - Elixir variables are immutable, but can be rebound, so for block expressions like `if`, `case`, `cond`, etc
-  you *must* bind the result of the expression to a variable if you want to use it and you CANNOT rebind the result inside the expression, ie:
+  you _must_ bind the result of the expression to a variable if you want to use it and you CANNOT rebind the result inside the expression, ie:
 
       # INVALID: we are rebinding inside the `if` and the result never gets assigned
       if connected?(socket) do
@@ -97,13 +97,15 @@ custom classes must fully style the input
 - **Avoid** `Process.sleep/1` and `Process.alive?/1` in tests
   - Instead of sleeping to wait for a process to finish, **always** use `Process.monitor/1` and assert on the DOWN message:
 
-      ref = Process.monitor(pid)
-      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    ref = Process.monitor(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
 
-   - Instead of sleeping to synchronize before the next call, **always** use `_ = :sys.get_state/1` to ensure the process has handled prior messages
+  - Instead of sleeping to synchronize before the next call, **always** use `_ = :sys.get_state/1` to ensure the process has handled prior messages
+
 <!-- phoenix:elixir-end -->
 
 <!-- phoenix:phoenix-start -->
+
 ## Phoenix guidelines
 
 - Remember Phoenix router `scope` blocks include an optional alias which is prefixed for all routes within the scope. **Always** be mindful of this when creating routes within a scope to avoid duplicate module prefixes.
@@ -119,9 +121,11 @@ custom classes must fully style the input
   the UserLive route would point to the `AppWeb.Admin.UserLive` module
 
 - `Phoenix.View` no longer is needed or included with Phoenix, don't use it
+
 <!-- phoenix:phoenix-end -->
 
 <!-- phoenix:ecto-start -->
+
 ## Ecto Guidelines
 
 - **Always** preload Ecto associations in queries when they'll be accessed in templates, ie a message that needs to reference the `message.user.email`
@@ -131,9 +135,11 @@ custom classes must fully style the input
 - You **must** use `Ecto.Changeset.get_field(changeset, :field)` to access changeset fields
 - Fields which are set programmatically, such as `user_id`, must not be listed in `cast` calls or similar for security purposes. Instead they must be explicitly set when creating the struct
 - **Always** invoke `mix ecto.gen.migration migration_name_using_underscores` when generating migration files, so the correct timestamp and conventions are applied
+
 <!-- phoenix:ecto-end -->
 
 <!-- phoenix:html-start -->
+
 ## Phoenix HTML guidelines
 
 - Phoenix templates **always** use `~H` or .html.heex files (known as HEEx), **never** use `~E`
@@ -163,7 +169,7 @@ custom classes must fully style the input
           ...
       <% end %>
 
-- HEEx require special tag annotation if you want to insert literal curly's like `{` or `}`. If you want to show a textual code snippet on the page in a `<pre>` or `<code>` block you *must* annotate the parent tag with `phx-no-curly-interpolation`:
+- HEEx require special tag annotation if you want to insert literal curly's like `{` or `}`. If you want to show a textual code snippet on the page in a `<pre>` or `<code>` block you _must_ annotate the parent tag with `phx-no-curly-interpolation`:
 
       <code phx-no-curly-interpolation>
         let obj = {key: "val"}
@@ -210,12 +216,14 @@ custom classes must fully style the input
         {if @invalid_block_construct do}
         {end}
       </div>
+
 <!-- phoenix:html-end -->
 
 <!-- phoenix:liveview-start -->
+
 ## Phoenix LiveView guidelines
 
-- **Never** use the deprecated `live_redirect` and `live_patch` functions, instead **always** use the `<.link navigate={href}>` and  `<.link patch={href}>` in templates, and `push_navigate` and `push_patch` functions LiveViews
+- **Never** use the deprecated `live_redirect` and `live_patch` functions, instead **always** use the `<.link navigate={href}>` and `<.link patch={href}>` in templates, and `push_navigate` and `push_patch` functions LiveViews
 - **Avoid LiveComponent's** unless you have a strong, specific need for them
 - LiveViews should be named like `AppWeb.WeatherLive`, with a `Live` suffix. When you go to add LiveView routes to the router, the default `:browser` scope is **already aliased** with the `AppWeb` module, so you can just do `live "/weather", WeatherLive`
 
@@ -235,7 +243,7 @@ custom classes must fully style the input
         </div>
       </div>
 
-- LiveView streams are *not* enumerable, so you cannot use `Enum.filter/2` or `Enum.reject/2` on them. Instead, if you want to filter, prune, or refresh a list of items on the UI, you **must refetch the data and re-stream the entire stream collection, passing reset: true**:
+- LiveView streams are _not_ enumerable, so you cannot use `Enum.filter/2` or `Enum.reject/2` on them. Instead, if you want to filter, prune, or refresh a list of items on the UI, you **must refetch the data and re-stream the entire stream collection, passing reset: true**:
 
       def handle_event("filter", %{"filter" => filter}, socket) do
         # re-fetch the messages based on the filter
@@ -248,7 +256,7 @@ custom classes must fully style the input
          |> stream(:messages, messages, reset: true)}
       end
 
-- LiveView streams *do not support counting or empty states*. If you need to display a count, you must track it using a separate assign. For empty states, you can use Tailwind classes:
+- LiveView streams _do not support counting or empty states_. If you need to display a count, you must track it using a separate assign. For empty states, you can use Tailwind classes:
 
       <div id="tasks" phx-update="stream">
         <div class="hidden only:block">No tasks yet</div>
@@ -444,6 +452,7 @@ And **never** do this:
 
 - You are FORBIDDEN from accessing the changeset in the template as it will cause errors
 - **Never** use `<.form let={f} ...>` in the template, instead **always use `<.form for={@form} ...>`**, then drive all form references from the form assign as in `@form[:field]`. The UI should **always** be driven by a `to_form/2` assigned in the LiveView module that is derived from a changeset
+
 <!-- phoenix:liveview-end -->
 
 <!-- usage-rules-end -->
