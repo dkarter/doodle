@@ -817,7 +817,13 @@ async function triggerOpenCodePrompt(
   const logPath = `${E2B_DIR}/logs/opencode-run-${Date.now()}-${index}.log`;
   const modelArg = opts?.model ? ` --model ${shQuote(opts.model)}` : "";
   const agentArg = opts?.agent ? ` --agent ${shQuote(opts.agent)}` : "";
-  const cmd = `bash -lc ${shQuote(`env MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- opencode run${modelArg}${agentArg} ${shQuote(prompt)} > ${shQuote(logPath)} 2>&1`)}`;
+  const cmd = `bash -lc ${
+    shQuote(
+      `env MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- opencode run${modelArg}${agentArg} ${
+        shQuote(prompt)
+      } > ${shQuote(logPath)} 2>&1`,
+    )
+  }`;
 
   await sandbox.commands.run(cmd, {
     cwd: REMOTE_ROOT,
