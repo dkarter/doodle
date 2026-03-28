@@ -11,8 +11,13 @@ defmodule DoodleWeb.Endpoint do
     same_site: "Lax"
   ]
 
+  @disable_ws_origin_check System.get_env("DISABLE_WS_ORIGIN_CHECK") in ~w(true 1)
+
   socket "/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [session: @session_options]],
+    websocket: [
+      check_origin: !@disable_ws_origin_check,
+      connect_info: [session: @session_options]
+    ],
     longpoll: [connect_info: [session: @session_options]]
 
   # Serve at "/" the static files from "priv/static" directory.
