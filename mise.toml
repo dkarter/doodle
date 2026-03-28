@@ -26,8 +26,12 @@ description = "Checks formatting and fails on differences"
 run = "dprint check"
 
 [tasks.sandbox]
-description = "Create and start E2B sandbox"
-run = "fnox exec -- sh -lc 'cd tools/e2b && E2B_TEMPLATE=${E2B_TEMPLATE:-doodle-sandbox} bun run sandbox.ts up'"
+description = "Start sandbox from last snapshot (fast)"
+run = "fnox exec -- sh -lc 'cd tools/e2b && bun run sandbox.ts resume-last --no-wait'"
+
+[tasks.sandbox-refresh]
+description = "Rebuild sandbox and snapshot from template"
+run = "fnox exec -- sh -lc 'cd tools/e2b && E2B_TEMPLATE=${E2B_TEMPLATE:-doodle-sandbox} bun run sandbox.ts create'"
 
 [tasks.sandbox-fast]
 description = "Start sandbox from last snapshot only"

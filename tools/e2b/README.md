@@ -61,6 +61,11 @@ For the fastest startup, skip health waits:
 fnox exec -- bun run sandbox.ts up --no-fallback --no-wait
 ```
 
+Mise task defaults:
+
+- `mise sandbox`: fast snapshot resume
+- `mise sandbox-refresh`: full rebuild + fresh snapshot
+
 Run OpenCode prompt in one or more fresh snapshot-based sandboxes (max 3):
 
 ```bash

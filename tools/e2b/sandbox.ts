@@ -1,27 +1,27 @@
-import Sandbox from "e2b"
-import { readdir, readFile, writeFile } from "node:fs/promises"
-import { join, relative, resolve } from "node:path"
-import { StepRenderer } from "./step_renderer"
+import Sandbox from "e2b";
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
+import { StepRenderer } from "./step_renderer";
 
 type CommandResult = {
-  exitCode: number
-  stdout: string
-  stderr: string
-}
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
 
-const APP_PORT = Number(process.env.E2B_APP_PORT ?? 4000)
-const OPENCODE_PORT = Number(process.env.E2B_OPENCODE_PORT ?? 4090)
-const PROJECT_ROOT = resolve(import.meta.dir, "../..")
-const REMOTE_ROOT = "/home/user/doodle"
-const E2B_DIR = `${REMOTE_ROOT}/.e2b`
-const MISE_BIN = "/home/user/.local/bin/mise"
-const DEFAULT_TEMPLATE = process.env.E2B_TEMPLATE
-const LAST_SNAPSHOT_FILE = resolve(import.meta.dir, ".last_snapshot_id")
-const stepUI = new StepRenderer()
+const APP_PORT = Number(process.env.E2B_APP_PORT ?? 4000);
+const OPENCODE_PORT = Number(process.env.E2B_OPENCODE_PORT ?? 4090);
+const PROJECT_ROOT = resolve(import.meta.dir, "../..");
+const REMOTE_ROOT = "/home/user/doodle";
+const E2B_DIR = `${REMOTE_ROOT}/.e2b`;
+const MISE_BIN = "/home/user/.local/bin/mise";
+const DEFAULT_TEMPLATE = process.env.E2B_TEMPLATE;
+const LAST_SNAPSHOT_FILE = resolve(import.meta.dir, ".last_snapshot_id");
+const stepUI = new StepRenderer();
 
-const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
-const SANDBOX_TIMEOUT_MS = 60 * 60 * 1000
-const ELIXIR_ERL_OPTIONS = "+fnu"
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+const SANDBOX_TIMEOUT_MS = 60 * 60 * 1000;
+const ELIXIR_ERL_OPTIONS = "+fnu";
 
 const EXCLUDED_DIRECTORIES = new Set([
   ".git",
@@ -33,7 +33,7 @@ const EXCLUDED_DIRECTORIES = new Set([
   "node_modules",
   "tmp",
   "cover",
-])
+]);
 
 const EXCLUDED_FILE_SUFFIXES = [
   ".beam",
@@ -46,7 +46,7 @@ const EXCLUDED_FILE_SUFFIXES = [
   ".png",
   ".gif",
   ".webp",
-]
+];
 
 function usage() {
   console.log(`
@@ -77,51 +77,51 @@ Notes:
   - Snapshot IDs are stored in ${LAST_SNAPSHOT_FILE}.
   - The script uploads this repository into the sandbox at ${REMOTE_ROOT}.
   - It starts Phoenix and OpenCode Web, then prints both preview URLs.
-`)
+`);
 }
 
 function getFlag(name: string): string | undefined {
-  const index = Bun.argv.indexOf(name)
-  if (index === -1) return undefined
-  return Bun.argv[index + 1]
+  const index = Bun.argv.indexOf(name);
+  if (index === -1) return undefined;
+  return Bun.argv[index + 1];
 }
 
 function hasFlag(name: string): boolean {
-  return Bun.argv.includes(name)
+  return Bun.argv.includes(name);
 }
 
 function parseCount(): number {
-  const raw = getFlag("--count") ?? "1"
-  const value = Number(raw)
+  const raw = getFlag("--count") ?? "1";
+  const value = Number(raw);
   if (!Number.isInteger(value) || value < 1 || value > 3) {
-    throw new Error("--count must be an integer between 1 and 3")
+    throw new Error("--count must be an integer between 1 and 3");
   }
 
-  return value
+  return value;
 }
 
 function getPrompt(): string {
-  const prompt =
-    getFlag("--prompt") ?? process.env.E2B_OPENCODE_PROMPT ?? process.env.SANDBOX_PROMPT
+  const prompt = getFlag("--prompt") ?? process.env.E2B_OPENCODE_PROMPT
+    ?? process.env.SANDBOX_PROMPT;
 
   if (!prompt || prompt.trim().length === 0) {
-    throw new Error("Missing prompt. Pass --prompt or set E2B_OPENCODE_PROMPT.")
+    throw new Error("Missing prompt. Pass --prompt or set E2B_OPENCODE_PROMPT.");
   }
 
-  return prompt
+  return prompt;
 }
 
 function shQuote(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}'`
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 function formatSeconds(ms: number): string {
-  return `${(ms / 1000).toFixed(1)}s`
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function assertApiKey() {
   if (!process.env.E2B_API_KEY) {
-    throw new Error("E2B_API_KEY is missing. Run the script with fnox exec.")
+    throw new Error("E2B_API_KEY is missing. Run the script with fnox exec.");
   }
 }
 
@@ -129,43 +129,43 @@ async function runChecked(
   sandbox: Sandbox,
   command: string,
   opts: {
-    cwd?: string
-    timeoutMs?: number
-    envs?: Record<string, string>
-    user?: string
+    cwd?: string;
+    timeoutMs?: number;
+    envs?: Record<string, string>;
+    user?: string;
   } = {},
 ): Promise<CommandResult> {
-  let result: CommandResult
-  let stdoutRemainder = ""
-  let stderrRemainder = ""
+  let result: CommandResult;
+  let stdoutRemainder = "";
+  let stderrRemainder = "";
 
   const pushLines = (chunk: string, isError: boolean) => {
-    const previous = isError ? stderrRemainder : stdoutRemainder
-    const combined = `${previous}${chunk}`
-    const parts = combined.split(/\r?\n/)
-    const tail = parts.pop() ?? ""
+    const previous = isError ? stderrRemainder : stdoutRemainder;
+    const combined = `${previous}${chunk}`;
+    const parts = combined.split(/\r?\n/);
+    const tail = parts.pop() ?? "";
 
     for (const line of parts) {
-      stepUI.appendLog(line, isError)
+      stepUI.appendLog(line, isError);
     }
 
     if (isError) {
-      stderrRemainder = tail
+      stderrRemainder = tail;
     } else {
-      stdoutRemainder = tail
+      stdoutRemainder = tail;
     }
-  }
+  };
 
   const flushRemainders = () => {
     if (stdoutRemainder.trim()) {
-      stepUI.appendLog(stdoutRemainder, false)
+      stepUI.appendLog(stdoutRemainder, false);
     }
     if (stderrRemainder.trim()) {
-      stepUI.appendLog(stderrRemainder, true)
+      stepUI.appendLog(stderrRemainder, true);
     }
-    stdoutRemainder = ""
-    stderrRemainder = ""
-  }
+    stdoutRemainder = "";
+    stderrRemainder = "";
+  };
 
   try {
     result = (await sandbox.commands.run(command, {
@@ -175,65 +175,65 @@ async function runChecked(
       user: opts.user,
       onStdout: (data) => pushLines(data, false),
       onStderr: (data) => pushLines(data, true),
-    })) as unknown as CommandResult
-    flushRemainders()
+    })) as unknown as CommandResult;
+    flushRemainders();
   } catch (error) {
-    flushRemainders()
+    flushRemainders();
     const commandError = error as {
-      result?: { exitCode?: number; stdout?: string; stderr?: string }
-      message?: string
-    }
+      result?: { exitCode?: number; stdout?: string; stderr?: string };
+      message?: string;
+    };
 
     if (commandError.result) {
-      const stderr = commandError.result.stderr?.trim()
-      const stdout = commandError.result.stdout?.trim()
-      const details = [stderr, stdout].filter(Boolean).join("\n") || "(no output)"
-      const exitCode = commandError.result.exitCode ?? "unknown"
-      throw new Error(`Command failed (${exitCode}): ${command}\n${details}`)
+      const stderr = commandError.result.stderr?.trim();
+      const stdout = commandError.result.stdout?.trim();
+      const details = [stderr, stdout].filter(Boolean).join("\n") || "(no output)";
+      const exitCode = commandError.result.exitCode ?? "unknown";
+      throw new Error(`Command failed (${exitCode}): ${command}\n${details}`);
     }
 
-    throw error
+    throw error;
   }
 
   if (result.exitCode !== 0) {
-    const stderr = result.stderr?.trim()
-    const stdout = result.stdout?.trim()
-    const details = [stderr, stdout].filter(Boolean).join("\n") || "(no output)"
-    throw new Error(`Command failed (${result.exitCode}): ${command}\n${details}`)
+    const stderr = result.stderr?.trim();
+    const stdout = result.stdout?.trim();
+    const details = [stderr, stdout].filter(Boolean).join("\n") || "(no output)";
+    throw new Error(`Command failed (${result.exitCode}): ${command}\n${details}`);
   }
 
-  return result
+  return result;
 }
 
 async function runWithExitCode(
   sandbox: Sandbox,
   command: string,
   opts: {
-    cwd?: string
-    timeoutMs?: number
-    envs?: Record<string, string>
-    user?: string
+    cwd?: string;
+    timeoutMs?: number;
+    envs?: Record<string, string>;
+    user?: string;
   } = {},
 ): Promise<CommandResult> {
-  let stdoutRemainder = ""
-  let stderrRemainder = ""
+  let stdoutRemainder = "";
+  let stderrRemainder = "";
 
   const pushLines = (chunk: string, isError: boolean) => {
-    const previous = isError ? stderrRemainder : stdoutRemainder
-    const combined = `${previous}${chunk}`
-    const parts = combined.split(/\r?\n/)
-    const tail = parts.pop() ?? ""
+    const previous = isError ? stderrRemainder : stdoutRemainder;
+    const combined = `${previous}${chunk}`;
+    const parts = combined.split(/\r?\n/);
+    const tail = parts.pop() ?? "";
 
     for (const line of parts) {
-      stepUI.appendLog(line, isError)
+      stepUI.appendLog(line, isError);
     }
 
     if (isError) {
-      stderrRemainder = tail
+      stderrRemainder = tail;
     } else {
-      stdoutRemainder = tail
+      stdoutRemainder = tail;
     }
-  }
+  };
 
   try {
     const result = (await sandbox.commands.run(command, {
@@ -243,118 +243,118 @@ async function runWithExitCode(
       user: opts.user,
       onStdout: (data) => pushLines(data, false),
       onStderr: (data) => pushLines(data, true),
-    })) as unknown as CommandResult
+    })) as unknown as CommandResult;
 
     if (stdoutRemainder.trim()) {
-      stepUI.appendLog(stdoutRemainder, false)
+      stepUI.appendLog(stdoutRemainder, false);
     }
     if (stderrRemainder.trim()) {
-      stepUI.appendLog(stderrRemainder, true)
+      stepUI.appendLog(stderrRemainder, true);
     }
 
-    return result
+    return result;
   } catch (error) {
     const commandError = error as {
-      result?: { exitCode?: number; stdout?: string; stderr?: string }
-    }
+      result?: { exitCode?: number; stdout?: string; stderr?: string };
+    };
 
     if (commandError.result) {
       return {
         exitCode: commandError.result.exitCode ?? 1,
         stdout: commandError.result.stdout ?? "",
         stderr: commandError.result.stderr ?? "",
-      }
+      };
     }
 
-    throw error
+    throw error;
   }
 }
 
 async function withStep<T>(title: string, action: () => Promise<T>): Promise<T> {
-  const startedAt = Date.now()
-  stepUI.startStep(title)
+  const startedAt = Date.now();
+  stepUI.startStep(title);
   try {
-    const result = await action()
-    stepUI.finishStep("done", `${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
-    return result
+    const result = await action();
+    stepUI.finishStep("done", `${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+    return result;
   } catch (error) {
-    stepUI.finishStep("failed", `${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
-    throw error
+    stepUI.finishStep("failed", `${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+    throw error;
   }
 }
 
 async function collectFiles(localRoot: string): Promise<string[]> {
-  const files: string[] = []
+  const files: string[] = [];
 
   async function walk(dir: string) {
-    const entries = await readdir(dir, { withFileTypes: true })
+    const entries = await readdir(dir, { withFileTypes: true });
 
     for (const entry of entries) {
-      const absolute = join(dir, entry.name)
-      const relativePath = relative(localRoot, absolute)
-      const segments = relativePath.split("/")
+      const absolute = join(dir, entry.name);
+      const relativePath = relative(localRoot, absolute);
+      const segments = relativePath.split("/");
 
       if (segments.some((part) => EXCLUDED_DIRECTORIES.has(part))) {
-        continue
+        continue;
       }
 
       if (entry.isDirectory()) {
-        await walk(absolute)
-        continue
+        await walk(absolute);
+        continue;
       }
 
       if (EXCLUDED_FILE_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) {
-        continue
+        continue;
       }
 
-      files.push(absolute)
+      files.push(absolute);
     }
   }
 
-  await walk(localRoot)
-  return files
+  await walk(localRoot);
+  return files;
 }
 
 async function uploadProject(sandbox: Sandbox, localRoot: string) {
-  stepUI.appendLog(`Uploading project from ${localRoot}`)
-  await runChecked(sandbox, `mkdir -p ${REMOTE_ROOT}`)
+  stepUI.appendLog(`Uploading project from ${localRoot}`);
+  await runChecked(sandbox, `mkdir -p ${REMOTE_ROOT}`);
 
-  const files = await collectFiles(localRoot)
-  const batchSize = 100
+  const files = await collectFiles(localRoot);
+  const batchSize = 100;
 
   for (let i = 0; i < files.length; i += batchSize) {
-    const batch = files.slice(i, i + batchSize)
+    const batch = files.slice(i, i + batchSize);
 
     const writes = await Promise.all(
       batch.map(async (filePath) => {
-        const rel = relative(localRoot, filePath).split("\\").join("/")
-        const remotePath = `${REMOTE_ROOT}/${rel}`
-        const data = await Bun.file(filePath).arrayBuffer()
-        return { path: remotePath, data }
+        const rel = relative(localRoot, filePath).split("\\").join("/");
+        const remotePath = `${REMOTE_ROOT}/${rel}`;
+        const data = await Bun.file(filePath).arrayBuffer();
+        return { path: remotePath, data };
       }),
-    )
+    );
 
-    await sandbox.files.write(writes)
-    stepUI.appendLog(`uploaded ${Math.min(i + batchSize, files.length)}/${files.length}`)
+    await sandbox.files.write(writes);
+    stepUI.appendLog(`uploaded ${Math.min(i + batchSize, files.length)}/${files.length}`);
   }
 }
 
 async function readLastSnapshotId(): Promise<string | null> {
   try {
-    const raw = await readFile(LAST_SNAPSHOT_FILE, "utf8")
-    const value = raw.trim()
-    return value.length > 0 ? value : null
+    const raw = await readFile(LAST_SNAPSHOT_FILE, "utf8");
+    const value = raw.trim();
+    return value.length > 0 ? value : null;
   } catch {
-    return null
+    return null;
   }
 }
 
 async function writeLastSnapshotId(snapshotId: string) {
-  await writeFile(LAST_SNAPSHOT_FILE, `${snapshotId}\n`, "utf8")
+  await writeFile(LAST_SNAPSHOT_FILE, `${snapshotId}\n`, "utf8");
 }
 
 async function installSystemDependencies(sandbox: Sandbox) {
-  stepUI.appendLog("Checking toolchain and runtime prerequisites")
+  stepUI.appendLog("Checking toolchain and runtime prerequisites");
 
   const checks: Array<{ name: string; result: CommandResult }> = [
     {
@@ -375,22 +375,22 @@ async function installSystemDependencies(sandbox: Sandbox) {
         user: "root",
       }),
     },
-  ]
+  ];
 
-  const failed = checks.filter((check) => check.result.exitCode !== 0)
+  const failed = checks.filter((check) => check.result.exitCode !== 0);
 
   if (failed.length > 0) {
-    const names = failed.map((check) => check.name).join(", ")
+    const names = failed.map((check) => check.name).join(", ");
     throw new Error(
       `Template is missing prerequisites: ${names}. Rebuild template with 'mise sandbox-template-build' and run again.`,
-    )
+    );
   }
 
-  await runChecked(sandbox, `${MISE_BIN} trust -y ${REMOTE_ROOT}/mise.toml`)
+  await runChecked(sandbox, `${MISE_BIN} trust -y ${REMOTE_ROOT}/mise.toml`);
   await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} install`, {
     cwd: REMOTE_ROOT,
     timeoutMs: 50 * 60 * 1000,
-  })
+  });
 }
 
 async function ensureDockerDaemon(sandbox: Sandbox) {
@@ -401,26 +401,26 @@ async function ensureDockerDaemon(sandbox: Sandbox) {
       user: "root",
       timeoutMs: 10 * 60 * 1000,
     },
-  )
+  );
 
   for (let attempt = 1; attempt <= 60; attempt += 1) {
     const result = (await sandbox.commands.run("docker info >/dev/null 2>&1", {
       timeoutMs: 10_000,
       user: "root",
-    })) as unknown as CommandResult
+    })) as unknown as CommandResult;
 
     if (result.exitCode === 0) {
-      return
+      return;
     }
 
-    await Bun.sleep(2_000)
+    await Bun.sleep(2_000);
   }
 
-  throw new Error("Docker daemon did not become ready")
+  throw new Error("Docker daemon did not become ready");
 }
 
 async function setupDatabaseWithDockerCompose(sandbox: Sandbox) {
-  await ensureDockerDaemon(sandbox)
+  await ensureDockerDaemon(sandbox);
 
   await runChecked(
     sandbox,
@@ -429,7 +429,7 @@ async function setupDatabaseWithDockerCompose(sandbox: Sandbox) {
       user: "root",
       timeoutMs: 10 * 60 * 1000,
     },
-  )
+  );
 
   for (let attempt = 1; attempt <= 60; attempt += 1) {
     const result = await runWithExitCode(
@@ -439,47 +439,64 @@ async function setupDatabaseWithDockerCompose(sandbox: Sandbox) {
         user: "root",
         timeoutMs: 10_000,
       },
-    )
+    );
 
     if (result.exitCode === 0) {
-      return
+      return;
     }
 
     if (attempt % 10 === 0) {
-      console.log(`  waiting for postgres (${attempt}/60)`)
+      console.log(`  waiting for postgres (${attempt}/60)`);
     }
-    await Bun.sleep(2_000)
+    await Bun.sleep(2_000);
   }
 
-  throw new Error("PostgreSQL container did not become healthy via Docker Compose")
+  throw new Error("PostgreSQL container did not become healthy via Docker Compose");
 }
 
 async function setupProject(sandbox: Sandbox) {
-  stepUI.appendLog("Verifying OpenCode and Mix toolchain")
+  stepUI.appendLog("Verifying OpenCode and Mix toolchain");
   await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- opencode --version`, {
     timeoutMs: 20 * 60 * 1000,
-  })
+  });
 
-  stepUI.appendLog("Fetching and compiling Elixir dependencies")
-  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- mix local.hex --force`)
-  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- mix local.rebar --force`)
+  stepUI.appendLog("Fetching and compiling Elixir dependencies");
+  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- mix local.hex --force`);
+  await runChecked(
+    sandbox,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- mix local.rebar --force`,
+  );
   await runChecked(
     sandbox,
     `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} MIX_ENV=prod mix deps.get`,
-  )
-  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} MIX_ENV=prod mix deps.compile`, {
-    timeoutMs: 30 * 60 * 1000,
-  })
-  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 MIX_ENV=prod mix compile`)
-  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 MIX_ENV=prod mix assets.deploy`, {
-    timeoutMs: 20 * 60 * 1000,
-  })
+  );
+  await runChecked(
+    sandbox,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} MIX_ENV=prod mix deps.compile`,
+    {
+      timeoutMs: 30 * 60 * 1000,
+    },
+  );
+  await runChecked(
+    sandbox,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=prod mix compile`,
+  );
+  await runChecked(
+    sandbox,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=prod mix assets.deploy`,
+    {
+      timeoutMs: 20 * 60 * 1000,
+    },
+  );
 
-  const secretResult = await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- mix phx.gen.secret`)
-  const secretKeyBase = secretResult.stdout.trim().split("\n").at(-1) ?? ""
+  const secretResult = await runChecked(
+    sandbox,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- mix phx.gen.secret`,
+  );
+  const secretKeyBase = secretResult.stdout.trim().split("\n").at(-1) ?? "";
 
   if (!secretKeyBase) {
-    throw new Error("Failed to generate SECRET_KEY_BASE")
+    throw new Error("Failed to generate SECRET_KEY_BASE");
   }
 
   const runtimeEnv = [
@@ -489,8 +506,9 @@ async function setupProject(sandbox: Sandbox) {
     "DATABASE_URL=ecto://postgres:postgres@localhost/doodle_dev",
     `ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS}`,
     "DISABLE_FORCE_SSL=1",
+    "DISABLE_WS_ORIGIN_CHECK=1",
     `SECRET_KEY_BASE=${secretKeyBase}`,
-  ].join("\n")
+  ].join("\n");
 
   const startScript = `#!/usr/bin/env bash
 set -euo pipefail
@@ -524,24 +542,24 @@ done
 docker compose -f "$APP_DIR/docker-compose.yml" up -d postgres >/dev/null 2>&1 || true
 
 if ! pgrep -f "mix phx.server" >/dev/null 2>&1; then
-  nohup bash -lc "cd $APP_DIR && MISE_JOBS=1 ${MISE_BIN} x -C $APP_DIR -- env ELIXIR_ERL_OPTIONS=$ELIXIR_ERL_OPTIONS DISABLE_FORCE_SSL=$DISABLE_FORCE_SSL PHX_SERVER=true MIX_ENV=prod PORT=$APP_PORT PHX_HOST=$PHX_HOST DATABASE_URL=$DATABASE_URL SECRET_KEY_BASE=$SECRET_KEY_BASE mix phx.server" > "$LOG_DIR/phoenix.log" 2>&1 &
+  nohup bash -lc "cd $APP_DIR && MISE_JOBS=1 ${MISE_BIN} x -C $APP_DIR -- env ELIXIR_ERL_OPTIONS=$ELIXIR_ERL_OPTIONS DISABLE_FORCE_SSL=$DISABLE_FORCE_SSL DISABLE_WS_ORIGIN_CHECK=$DISABLE_WS_ORIGIN_CHECK PHX_SERVER=true MIX_ENV=prod PORT=$APP_PORT PHX_HOST=$PHX_HOST DATABASE_URL=$DATABASE_URL SECRET_KEY_BASE=$SECRET_KEY_BASE mix phx.server" > "$LOG_DIR/phoenix.log" 2>&1 &
 fi
 
 if ! pgrep -f "opencode web --hostname 0.0.0.0 --port $OPENCODE_PORT" >/dev/null 2>&1; then
   nohup bash -lc "cd $APP_DIR && MISE_JOBS=1 ${MISE_BIN} x -C $APP_DIR -- opencode web --hostname 0.0.0.0 --port $OPENCODE_PORT" > "$LOG_DIR/opencode.log" 2>&1 &
 fi
-`
+`;
 
-  await runChecked(sandbox, `mkdir -p ${E2B_DIR}`)
-  await sandbox.files.write(`${E2B_DIR}/runtime.env`, runtimeEnv)
-  await sandbox.files.write(`${E2B_DIR}/start-services.sh`, startScript)
-  await runChecked(sandbox, `chmod +x ${E2B_DIR}/start-services.sh`)
+  await runChecked(sandbox, `mkdir -p ${E2B_DIR}`);
+  await sandbox.files.write(`${E2B_DIR}/runtime.env`, runtimeEnv);
+  await sandbox.files.write(`${E2B_DIR}/start-services.sh`, startScript);
+  await runChecked(sandbox, `chmod +x ${E2B_DIR}/start-services.sh`);
 
-  stepUI.appendLog("Running migrations")
+  stepUI.appendLog("Running migrations");
   await runChecked(
     sandbox,
-    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 SECRET_KEY_BASE=${secretKeyBase} DATABASE_URL=ecto://postgres:postgres@localhost/doodle_dev MIX_ENV=prod mix ecto.migrate`,
-  )
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 SECRET_KEY_BASE=${secretKeyBase} DATABASE_URL=ecto://postgres:postgres@localhost/doodle_dev MIX_ENV=prod mix ecto.migrate`,
+  );
 }
 
 async function waitForHttp(
@@ -555,34 +573,34 @@ async function waitForHttp(
       sandbox,
       `curl -sS --max-time 2 -o /dev/null http://127.0.0.1:${port}`,
       { timeoutMs: 10_000 },
-    )
+    );
 
     if (result.exitCode === 0) {
-      return
+      return;
     }
 
-    await Bun.sleep(2_000)
+    await Bun.sleep(2_000);
     if (attempt % 10 === 0) {
-      console.log(`  waiting for ${label} (${attempt}/${retries})`)
+      console.log(`  waiting for ${label} (${attempt}/${retries})`);
     }
   }
 
-  throw new Error(`${label} did not become healthy on port ${port}`)
+  throw new Error(`${label} did not become healthy on port ${port}`);
 }
 
 function printResult(sandbox: Sandbox, snapshotId?: string) {
-  const appUrl = `https://${sandbox.getHost(APP_PORT)}`
-  const opencodeUrl = `https://${sandbox.getHost(OPENCODE_PORT)}`
+  const appUrl = `https://${sandbox.getHost(APP_PORT)}`;
+  const opencodeUrl = `https://${sandbox.getHost(OPENCODE_PORT)}`;
 
-  console.log("\nSandbox ready")
-  console.log(`- Sandbox ID: ${sandbox.sandboxId}`)
-  console.log(`- App URL: ${appUrl}`)
-  console.log(`- OpenCode Web URL: ${opencodeUrl}`)
+  console.log("\nSandbox ready");
+  console.log(`- Sandbox ID: ${sandbox.sandboxId}`);
+  console.log(`- App URL: ${appUrl}`);
+  console.log(`- OpenCode Web URL: ${opencodeUrl}`);
   if (snapshotId) {
-    console.log(`- Snapshot ID: ${snapshotId}`)
+    console.log(`- Snapshot ID: ${snapshotId}`);
   }
 
-  console.log("\nTo continue coding inside this sandbox, open OpenCode Web URL.")
+  console.log("\nTo continue coding inside this sandbox, open OpenCode Web URL.");
 }
 
 async function startServices(sandbox: Sandbox, opts: { waitForHealth: boolean }) {
@@ -590,149 +608,167 @@ async function startServices(sandbox: Sandbox, opts: { waitForHealth: boolean })
     await runChecked(
       sandbox,
       `bash -lc 'nohup ${E2B_DIR}/start-services.sh > ${E2B_DIR}/logs/bootstrap.log 2>&1 &'`,
-    )
-    return
+    );
+    return;
   }
 
-  await runChecked(sandbox, `${E2B_DIR}/start-services.sh`)
-  await waitForHttp(sandbox, APP_PORT, "Phoenix")
-  await waitForHttp(sandbox, OPENCODE_PORT, "OpenCode Web")
+  await runChecked(sandbox, `${E2B_DIR}/start-services.sh`);
+  await waitForHttp(sandbox, APP_PORT, "Phoenix");
+  await waitForHttp(sandbox, OPENCODE_PORT, "OpenCode Web");
 }
 
 async function createSandbox() {
-  assertApiKey()
+  assertApiKey();
 
-  const template = getFlag("--template") ?? DEFAULT_TEMPLATE
-  const shouldCreateSnapshot = !hasFlag("--no-snapshot")
+  const template = getFlag("--template") ?? DEFAULT_TEMPLATE;
+  const shouldCreateSnapshot = !hasFlag("--no-snapshot");
 
   if (!template) {
     console.log(
       "- No template provided. If Erlang build fails on low memory, build a template with more RAM and pass --template.",
-    )
+    );
   }
 
-  console.log("Creating sandbox")
-  const createStartedAt = Date.now()
+  console.log("Creating sandbox");
+  const createStartedAt = Date.now();
   const sandbox = template
     ? await Sandbox.create(template, {
-        timeoutMs: SANDBOX_TIMEOUT_MS,
-        metadata: { project: "doodle", purpose: "app-sandbox" },
-      })
+      timeoutMs: SANDBOX_TIMEOUT_MS,
+      metadata: { project: "doodle", purpose: "app-sandbox" },
+    })
     : await Sandbox.create({
+      timeoutMs: SANDBOX_TIMEOUT_MS,
+      metadata: { project: "doodle", purpose: "app-sandbox" },
+    });
+
+  console.log(
+    `- Sandbox created: ${sandbox.sandboxId} (${formatSeconds(Date.now() - createStartedAt)})`,
+  );
+  const info = await sandbox.getInfo();
+  console.log(`- Sandbox resources: ${info.cpuCount} CPU / ${info.memoryMB} MB RAM`);
+
+  await withStep("Upload project", () => uploadProject(sandbox, PROJECT_ROOT));
+  await withStep("Verify template prerequisites", () => installSystemDependencies(sandbox));
+  await withStep("Start PostgreSQL", () => setupDatabaseWithDockerCompose(sandbox));
+  await withStep("Build app and migrate", () => setupProject(sandbox));
+  await withStep(
+    "Start Phoenix and OpenCode",
+    () => startServices(sandbox, { waitForHealth: true }),
+  );
+
+  let snapshotId: string | undefined;
+  let activeSandbox = sandbox;
+  if (shouldCreateSnapshot) {
+    const snapshot = await withStep("Create snapshot", () => sandbox.createSnapshot());
+    snapshotId = snapshot.snapshotId;
+    await writeLastSnapshotId(snapshot.snapshotId);
+
+    const resumed = await withStep("Resume fresh sandbox from snapshot", () =>
+      Sandbox.create(snapshot.snapshotId, {
         timeoutMs: SANDBOX_TIMEOUT_MS,
         metadata: { project: "doodle", purpose: "app-sandbox" },
       })
-
-  console.log(`- Sandbox created: ${sandbox.sandboxId} (${formatSeconds(Date.now() - createStartedAt)})`)
-  const info = await sandbox.getInfo()
-  console.log(`- Sandbox resources: ${info.cpuCount} CPU / ${info.memoryMB} MB RAM`)
-
-  await withStep("Upload project", () => uploadProject(sandbox, PROJECT_ROOT))
-  await withStep("Verify template prerequisites", () => installSystemDependencies(sandbox))
-  await withStep("Start PostgreSQL", () => setupDatabaseWithDockerCompose(sandbox))
-  await withStep("Build app and migrate", () => setupProject(sandbox))
-  await withStep("Start Phoenix and OpenCode", () => startServices(sandbox, { waitForHealth: true }))
-
-  let snapshotId: string | undefined
-  if (shouldCreateSnapshot) {
-    const snapshot = await withStep("Create snapshot", () => sandbox.createSnapshot())
-    snapshotId = snapshot.snapshotId
-    await writeLastSnapshotId(snapshot.snapshotId)
+    );
+    await withStep("Start Phoenix and OpenCode (resumed)", () =>
+      startServices(resumed, { waitForHealth: true })
+    );
+    activeSandbox = resumed;
   }
 
-  printResult(sandbox, snapshotId)
+  printResult(activeSandbox, snapshotId);
 }
 
 async function resumeFromSnapshot(snapshotIdArg?: string) {
-  assertApiKey()
+  assertApiKey();
 
-  const snapshotId = snapshotIdArg ?? getFlag("--snapshot-id")
+  const snapshotId = snapshotIdArg ?? getFlag("--snapshot-id");
   if (!snapshotId) {
-    throw new Error("Missing --snapshot-id")
+    throw new Error("Missing --snapshot-id");
   }
 
-  console.log(`Creating sandbox from snapshot ${snapshotId}`)
-  const resumeStartedAt = Date.now()
+  console.log(`Creating sandbox from snapshot ${snapshotId}`);
+  const resumeStartedAt = Date.now();
   const sandbox = await Sandbox.create(snapshotId, {
     timeoutMs: SANDBOX_TIMEOUT_MS,
     metadata: { project: "doodle", purpose: "app-sandbox" },
-  })
-  console.log(`- Snapshot resumed in ${formatSeconds(Date.now() - resumeStartedAt)}`)
+  });
+  console.log(`- Snapshot resumed in ${formatSeconds(Date.now() - resumeStartedAt)}`);
 
-  await writeLastSnapshotId(snapshotId)
-  await withStep("Start Phoenix and OpenCode", () =>
-    startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") }),
-  )
-  printResult(sandbox)
+  await writeLastSnapshotId(snapshotId);
+  await withStep(
+    "Start Phoenix and OpenCode",
+    () => startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") }),
+  );
+  printResult(sandbox);
 }
 
 async function upSandbox() {
-  const explicitSnapshotId = getFlag("--snapshot-id")
-  const noFallback = hasFlag("--no-fallback")
-  const lastSnapshotId = await readLastSnapshotId()
-  const snapshotId = explicitSnapshotId ?? lastSnapshotId
+  const explicitSnapshotId = getFlag("--snapshot-id");
+  const noFallback = hasFlag("--no-fallback");
+  const lastSnapshotId = await readLastSnapshotId();
+  const snapshotId = explicitSnapshotId ?? lastSnapshotId;
 
   if (snapshotId) {
     try {
-      console.log(`Trying snapshot ${snapshotId}`)
-      await resumeFromSnapshot(snapshotId)
-      return
+      console.log(`Trying snapshot ${snapshotId}`);
+      await resumeFromSnapshot(snapshotId);
+      return;
     } catch (error) {
       if (noFallback) {
-        throw error
+        throw error;
       }
-      const message = error instanceof Error ? error.message : String(error)
-      console.log(`- Snapshot resume failed, falling back to full create: ${message}`)
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(`- Snapshot resume failed, falling back to full create: ${message}`);
     }
   }
 
-  await createSandbox()
+  await createSandbox();
 }
 
 async function resumeLastSnapshot() {
-  const snapshotId = await readLastSnapshotId()
+  const snapshotId = await readLastSnapshotId();
   if (!snapshotId) {
-    throw new Error("No saved snapshot id found. Run create once first.")
+    throw new Error("No saved snapshot id found. Run create once first.");
   }
 
-  await resumeFromSnapshot(snapshotId)
+  await resumeFromSnapshot(snapshotId);
 }
 
 async function upManySandboxes() {
-  const count = parseCount()
-  const explicitSnapshotId = getFlag("--snapshot-id")
-  const lastSnapshotId = await readLastSnapshotId()
-  const snapshotId = explicitSnapshotId ?? lastSnapshotId
+  const count = parseCount();
+  const explicitSnapshotId = getFlag("--snapshot-id");
+  const lastSnapshotId = await readLastSnapshotId();
+  const snapshotId = explicitSnapshotId ?? lastSnapshotId;
 
   if (!snapshotId) {
-    throw new Error("Missing snapshot id. Run create once or pass --snapshot-id.")
+    throw new Error("Missing snapshot id. Run create once or pass --snapshot-id.");
   }
 
-  console.log(`Starting ${count} sandbox(es) from snapshot ${snapshotId}`)
+  console.log(`Starting ${count} sandbox(es) from snapshot ${snapshotId}`);
 
   const launches = Array.from({ length: count }, async (_, index) => {
     const sandbox = await Sandbox.create(snapshotId, {
       timeoutMs: SANDBOX_TIMEOUT_MS,
       metadata: { project: "doodle", purpose: `app-sandbox-${index + 1}` },
-    })
+    });
 
-    await startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") })
+    await startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") });
 
     return {
       index: index + 1,
       sandbox,
       appUrl: `https://${sandbox.getHost(APP_PORT)}`,
       opencodeUrl: `https://${sandbox.getHost(OPENCODE_PORT)}`,
-    }
-  })
+    };
+  });
 
-  const results = await Promise.all(launches)
+  const results = await Promise.all(launches);
 
-  console.log("\nSandboxes ready")
+  console.log("\nSandboxes ready");
   for (const item of results) {
-    console.log(`- [${item.index}] Sandbox ID: ${item.sandbox.sandboxId}`)
-    console.log(`  App URL: ${item.appUrl}`)
-    console.log(`  OpenCode Web URL: ${item.opencodeUrl}`)
+    console.log(`- [${item.index}] Sandbox ID: ${item.sandbox.sandboxId}`);
+    console.log(`  App URL: ${item.appUrl}`);
+    console.log(`  OpenCode Web URL: ${item.opencodeUrl}`);
   }
 }
 
@@ -742,43 +778,45 @@ async function triggerOpenCodePrompt(
   index: number,
   opts?: { model?: string; agent?: string },
 ) {
-  const logPath = `${E2B_DIR}/logs/opencode-run-${Date.now()}-${index}.log`
-  const modelArg = opts?.model ? ` --model ${shQuote(opts.model)}` : ""
-  const agentArg = opts?.agent ? ` --agent ${shQuote(opts.agent)}` : ""
+  const logPath = `${E2B_DIR}/logs/opencode-run-${Date.now()}-${index}.log`;
+  const modelArg = opts?.model ? ` --model ${shQuote(opts.model)}` : "";
+  const agentArg = opts?.agent ? ` --agent ${shQuote(opts.agent)}` : "";
 
   await runChecked(
     sandbox,
-    `bash -lc 'cd ${REMOTE_ROOT} && nohup env MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- opencode run${modelArg}${agentArg} ${shQuote(prompt)} > ${shQuote(logPath)} 2>&1 &'`,
-  )
+    `bash -lc 'cd ${REMOTE_ROOT} && nohup env MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- opencode run${modelArg}${agentArg} ${
+      shQuote(prompt)
+    } > ${shQuote(logPath)} 2>&1 &'`,
+  );
 
-  return logPath
+  return logPath;
 }
 
 async function runPromptInSandboxes() {
-  const count = parseCount()
-  const prompt = getPrompt()
-  const model = getFlag("--model")
-  const agent = getFlag("--agent")
+  const count = parseCount();
+  const prompt = getPrompt();
+  const model = getFlag("--model");
+  const agent = getFlag("--agent");
 
-  const explicitSnapshotId = getFlag("--snapshot-id")
-  const lastSnapshotId = await readLastSnapshotId()
-  const snapshotId = explicitSnapshotId ?? lastSnapshotId
+  const explicitSnapshotId = getFlag("--snapshot-id");
+  const lastSnapshotId = await readLastSnapshotId();
+  const snapshotId = explicitSnapshotId ?? lastSnapshotId;
 
   if (!snapshotId) {
-    throw new Error("Missing snapshot id. Run create once or pass --snapshot-id.")
+    throw new Error("Missing snapshot id. Run create once or pass --snapshot-id.");
   }
 
-  console.log(`Starting ${count} sandbox(es) from snapshot ${snapshotId}`)
-  console.log(`Prompt: ${prompt}`)
+  console.log(`Starting ${count} sandbox(es) from snapshot ${snapshotId}`);
+  console.log(`Prompt: ${prompt}`);
 
   const launches = Array.from({ length: count }, async (_, index) => {
     const sandbox = await Sandbox.create(snapshotId, {
       timeoutMs: SANDBOX_TIMEOUT_MS,
       metadata: { project: "doodle", purpose: `prompt-run-${index + 1}` },
-    })
+    });
 
-    await startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") })
-    const logPath = await triggerOpenCodePrompt(sandbox, prompt, index + 1, { model, agent })
+    await startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") });
+    const logPath = await triggerOpenCodePrompt(sandbox, prompt, index + 1, { model, agent });
 
     return {
       index: index + 1,
@@ -786,84 +824,84 @@ async function runPromptInSandboxes() {
       appUrl: `https://${sandbox.getHost(APP_PORT)}`,
       opencodeUrl: `https://${sandbox.getHost(OPENCODE_PORT)}`,
       logPath,
-    }
-  })
+    };
+  });
 
-  const results = await Promise.all(launches)
+  const results = await Promise.all(launches);
 
-  console.log("\nPrompt sandboxes ready")
+  console.log("\nPrompt sandboxes ready");
   for (const item of results) {
-    console.log(`- [${item.index}] Sandbox ID: ${item.sandboxId}`)
-    console.log(`  App URL: ${item.appUrl}`)
-    console.log(`  OpenCode Web URL: ${item.opencodeUrl}`)
-    console.log(`  Prompt log: ${item.logPath}`)
+    console.log(`- [${item.index}] Sandbox ID: ${item.sandboxId}`);
+    console.log(`  App URL: ${item.appUrl}`);
+    console.log(`  OpenCode Web URL: ${item.opencodeUrl}`);
+    console.log(`  Prompt log: ${item.logPath}`);
   }
 }
 
 async function createSnapshotFromSandbox() {
-  assertApiKey()
+  assertApiKey();
 
-  const sandboxId = getFlag("--sandbox-id")
+  const sandboxId = getFlag("--sandbox-id");
   if (!sandboxId) {
-    throw new Error("Missing --sandbox-id")
+    throw new Error("Missing --sandbox-id");
   }
 
-  console.log(`Connecting to sandbox ${sandboxId}`)
-  const sandbox = await Sandbox.connect(sandboxId)
-  const snapshot = await sandbox.createSnapshot()
+  console.log(`Connecting to sandbox ${sandboxId}`);
+  const sandbox = await Sandbox.connect(sandboxId);
+  const snapshot = await sandbox.createSnapshot();
 
-  console.log("Snapshot created")
-  console.log(`- Sandbox ID: ${sandboxId}`)
-  console.log(`- Snapshot ID: ${snapshot.snapshotId}`)
+  console.log("Snapshot created");
+  console.log(`- Sandbox ID: ${sandboxId}`);
+  console.log(`- Snapshot ID: ${snapshot.snapshotId}`);
 }
 
 async function main() {
-  const command = Bun.argv[2] ?? ""
+  const command = Bun.argv[2] ?? "";
 
   if (!command || command === "help" || command === "--help") {
-    usage()
-    return
+    usage();
+    return;
   }
 
   if (command === "create") {
-    await createSandbox()
-    return
+    await createSandbox();
+    return;
   }
 
   if (command === "up") {
-    await upSandbox()
-    return
+    await upSandbox();
+    return;
   }
 
   if (command === "resume-last") {
-    await resumeLastSnapshot()
-    return
+    await resumeLastSnapshot();
+    return;
   }
 
   if (command === "up-many") {
-    await upManySandboxes()
-    return
+    await upManySandboxes();
+    return;
   }
 
   if (command === "run-prompt") {
-    await runPromptInSandboxes()
-    return
+    await runPromptInSandboxes();
+    return;
   }
 
   if (command === "resume") {
-    await resumeFromSnapshot()
-    return
+    await resumeFromSnapshot();
+    return;
   }
 
   if (command === "snapshot") {
-    await createSnapshotFromSandbox()
-    return
+    await createSnapshotFromSandbox();
+    return;
   }
 
-  throw new Error(`Unknown command: ${command}`)
+  throw new Error(`Unknown command: ${command}`);
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exitCode = 1
-})
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});
