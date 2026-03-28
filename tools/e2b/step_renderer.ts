@@ -1,28 +1,32 @@
 type StepStatus = "running" | "done" | "failed"
 
 export class StepRenderer {
-  private readonly enabled = Boolean(process.stdout.isTTY)
+  private readonly enabled =
+    Boolean(process.stdout.isTTY) &&
+    !["0", "false", "no"].includes((process.env.E2B_LIVE_UI ?? "").toLowerCase())
   private readonly maxActiveLogs = 7
   private renderedLines = 0
-  private steps: Array<{ title: string; status: StepStatus }> = []
+  private steps: Array<{ title: string; status: StepStatus; detail?: string }> = []
   private activeLogs: string[] = []
 
   startStep(title: string) {
+    this.steps.push({ title, status: "running" })
+
     if (!this.enabled) {
       console.log(`- ${title}...`)
       return
     }
 
-    this.steps.push({ title, status: "running" })
     this.activeLogs = []
     this.render()
   }
 
-  finishStep(status: Exclude<StepStatus, "running">) {
+  finishStep(status: Exclude<StepStatus, "running">, detail?: string) {
     if (!this.enabled) {
       const current = this.steps.at(-1)
       if (current) {
-        console.log(`- ${current.title} ${status.toUpperCase()}`)
+        const suffix = detail ? ` (${detail})` : ""
+        console.log(`- ${current.title} ${status.toUpperCase()}${suffix}`)
       }
       return
     }
@@ -30,6 +34,7 @@ export class StepRenderer {
     const current = this.steps.at(-1)
     if (current) {
       current.status = status
+      current.detail = detail
     }
     this.activeLogs = []
     this.render()
@@ -61,7 +66,8 @@ export class StepRenderer {
           : step.status === "failed"
             ? "\x1b[31mFAILED\x1b[0m"
             : "\x1b[33m...\x1b[0m"
-      lines.push(`${step.title} ${badge}`)
+      const detail = (step as { detail?: string }).detail
+      lines.push(`${step.title} ${badge}${detail ? ` (${detail})` : ""}`)
     }
 
     lines.push(...this.activeLogs)

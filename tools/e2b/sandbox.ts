@@ -51,13 +51,20 @@ const EXCLUDED_FILE_SUFFIXES = [
 function usage() {
   console.log(`
 Usage:
-  bun run sandbox.ts up [--snapshot-id <snapshot-id>]
+  bun run sandbox.ts up [--snapshot-id <snapshot-id>] [--no-fallback] [--no-wait]
+  bun run sandbox.ts resume-last
+  bun run sandbox.ts up-many [--count <1-3>] [--snapshot-id <snapshot-id>] [--no-wait]
+  bun run sandbox.ts run-prompt [--count <1-3>] [--snapshot-id <snapshot-id>] [--prompt <text>] [--model <provider/model>] [--agent <agent>] [--no-wait]
   bun run sandbox.ts create [--template <template-or-snapshot-id>] [--no-snapshot]
   bun run sandbox.ts resume --snapshot-id <snapshot-id>
   bun run sandbox.ts snapshot --sandbox-id <sandbox-id>
 
 Examples:
   fnox exec -- bun run sandbox.ts up
+  fnox exec -- bun run sandbox.ts up --no-fallback
+  fnox exec -- bun run sandbox.ts resume-last
+  fnox exec -- bun run sandbox.ts up-many --count 3
+  fnox exec -- bun run sandbox.ts run-prompt --count 2 --prompt "Fix flaky tests"
   fnox exec -- bun run sandbox.ts create
   fnox exec -- bun run sandbox.ts create --template my-template
   fnox exec -- bun run sandbox.ts resume --snapshot-id snp_123
@@ -65,6 +72,7 @@ Examples:
 
 Notes:
   - E2B_API_KEY must be injected via fnox.
+  - Prompt command accepts --prompt or E2B_OPENCODE_PROMPT env var.
   - For enough memory, build a template and set E2B_TEMPLATE (or pass --template).
   - Snapshot IDs are stored in ${LAST_SNAPSHOT_FILE}.
   - The script uploads this repository into the sandbox at ${REMOTE_ROOT}.
@@ -80,6 +88,35 @@ function getFlag(name: string): string | undefined {
 
 function hasFlag(name: string): boolean {
   return Bun.argv.includes(name)
+}
+
+function parseCount(): number {
+  const raw = getFlag("--count") ?? "1"
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 1 || value > 3) {
+    throw new Error("--count must be an integer between 1 and 3")
+  }
+
+  return value
+}
+
+function getPrompt(): string {
+  const prompt =
+    getFlag("--prompt") ?? process.env.E2B_OPENCODE_PROMPT ?? process.env.SANDBOX_PROMPT
+
+  if (!prompt || prompt.trim().length === 0) {
+    throw new Error("Missing prompt. Pass --prompt or set E2B_OPENCODE_PROMPT.")
+  }
+
+  return prompt
+}
+
+function shQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`
+}
+
+function formatSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`
 }
 
 function assertApiKey() {
@@ -234,13 +271,14 @@ async function runWithExitCode(
 }
 
 async function withStep<T>(title: string, action: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now()
   stepUI.startStep(title)
   try {
     const result = await action()
-    stepUI.finishStep("done")
+    stepUI.finishStep("done", `${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
     return result
   } catch (error) {
-    stepUI.finishStep("failed")
+    stepUI.finishStep("failed", `${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
     throw error
   }
 }
@@ -432,8 +470,8 @@ async function setupProject(sandbox: Sandbox) {
   await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} MIX_ENV=prod mix deps.compile`, {
     timeoutMs: 30 * 60 * 1000,
   })
-  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} MIX_ENV=prod mix compile`)
-  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} MIX_ENV=prod mix assets.deploy`, {
+  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 MIX_ENV=prod mix compile`)
+  await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 MIX_ENV=prod mix assets.deploy`, {
     timeoutMs: 20 * 60 * 1000,
   })
 
@@ -450,6 +488,7 @@ async function setupProject(sandbox: Sandbox) {
     `PHX_HOST=${sandbox.getHost(APP_PORT)}`,
     "DATABASE_URL=ecto://postgres:postgres@localhost/doodle_dev",
     `ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS}`,
+    "DISABLE_FORCE_SSL=1",
     `SECRET_KEY_BASE=${secretKeyBase}`,
   ].join("\n")
 
@@ -461,8 +500,14 @@ E2B_DIR="${E2B_DIR}"
 LOG_DIR="$E2B_DIR/logs"
 mkdir -p "$LOG_DIR"
 
+set -a
 source "$E2B_DIR/runtime.env"
+set +a
 cd "$APP_DIR"
+
+if pgrep -f "mix phx.server" >/dev/null 2>&1 && pgrep -f "opencode web --hostname 0.0.0.0 --port $OPENCODE_PORT" >/dev/null 2>&1; then
+  exit 0
+fi
 
 if command -v service >/dev/null 2>&1; then
   service docker start >/dev/null 2>&1 || true
@@ -479,7 +524,7 @@ done
 docker compose -f "$APP_DIR/docker-compose.yml" up -d postgres >/dev/null 2>&1 || true
 
 if ! pgrep -f "mix phx.server" >/dev/null 2>&1; then
-  nohup bash -lc "cd $APP_DIR && MISE_JOBS=1 ${MISE_BIN} x -C $APP_DIR -- env ELIXIR_ERL_OPTIONS=$ELIXIR_ERL_OPTIONS PHX_SERVER=true MIX_ENV=prod PORT=$APP_PORT DATABASE_URL=$DATABASE_URL SECRET_KEY_BASE=$SECRET_KEY_BASE mix phx.server" > "$LOG_DIR/phoenix.log" 2>&1 &
+  nohup bash -lc "cd $APP_DIR && MISE_JOBS=1 ${MISE_BIN} x -C $APP_DIR -- env ELIXIR_ERL_OPTIONS=$ELIXIR_ERL_OPTIONS DISABLE_FORCE_SSL=$DISABLE_FORCE_SSL PHX_SERVER=true MIX_ENV=prod PORT=$APP_PORT PHX_HOST=$PHX_HOST DATABASE_URL=$DATABASE_URL SECRET_KEY_BASE=$SECRET_KEY_BASE mix phx.server" > "$LOG_DIR/phoenix.log" 2>&1 &
 fi
 
 if ! pgrep -f "opencode web --hostname 0.0.0.0 --port $OPENCODE_PORT" >/dev/null 2>&1; then
@@ -495,7 +540,7 @@ fi
   stepUI.appendLog("Running migrations")
   await runChecked(
     sandbox,
-    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} SECRET_KEY_BASE=${secretKeyBase} DATABASE_URL=ecto://postgres:postgres@localhost/doodle_dev MIX_ENV=prod mix ecto.migrate`,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 SECRET_KEY_BASE=${secretKeyBase} DATABASE_URL=ecto://postgres:postgres@localhost/doodle_dev MIX_ENV=prod mix ecto.migrate`,
   )
 }
 
@@ -508,7 +553,7 @@ async function waitForHttp(
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     const result = await runWithExitCode(
       sandbox,
-      `curl -fsS --max-time 2 http://127.0.0.1:${port} >/dev/null`,
+      `curl -sS --max-time 2 -o /dev/null http://127.0.0.1:${port}`,
       { timeoutMs: 10_000 },
     )
 
@@ -540,7 +585,15 @@ function printResult(sandbox: Sandbox, snapshotId?: string) {
   console.log("\nTo continue coding inside this sandbox, open OpenCode Web URL.")
 }
 
-async function startServices(sandbox: Sandbox) {
+async function startServices(sandbox: Sandbox, opts: { waitForHealth: boolean }) {
+  if (!opts.waitForHealth) {
+    await runChecked(
+      sandbox,
+      `bash -lc 'nohup ${E2B_DIR}/start-services.sh > ${E2B_DIR}/logs/bootstrap.log 2>&1 &'`,
+    )
+    return
+  }
+
   await runChecked(sandbox, `${E2B_DIR}/start-services.sh`)
   await waitForHttp(sandbox, APP_PORT, "Phoenix")
   await waitForHttp(sandbox, OPENCODE_PORT, "OpenCode Web")
@@ -559,6 +612,7 @@ async function createSandbox() {
   }
 
   console.log("Creating sandbox")
+  const createStartedAt = Date.now()
   const sandbox = template
     ? await Sandbox.create(template, {
         timeoutMs: SANDBOX_TIMEOUT_MS,
@@ -569,7 +623,7 @@ async function createSandbox() {
         metadata: { project: "doodle", purpose: "app-sandbox" },
       })
 
-  console.log(`- Sandbox created: ${sandbox.sandboxId}`)
+  console.log(`- Sandbox created: ${sandbox.sandboxId} (${formatSeconds(Date.now() - createStartedAt)})`)
   const info = await sandbox.getInfo()
   console.log(`- Sandbox resources: ${info.cpuCount} CPU / ${info.memoryMB} MB RAM`)
 
@@ -577,7 +631,7 @@ async function createSandbox() {
   await withStep("Verify template prerequisites", () => installSystemDependencies(sandbox))
   await withStep("Start PostgreSQL", () => setupDatabaseWithDockerCompose(sandbox))
   await withStep("Build app and migrate", () => setupProject(sandbox))
-  await withStep("Start Phoenix and OpenCode", () => startServices(sandbox))
+  await withStep("Start Phoenix and OpenCode", () => startServices(sandbox, { waitForHealth: true }))
 
   let snapshotId: string | undefined
   if (shouldCreateSnapshot) {
@@ -598,18 +652,23 @@ async function resumeFromSnapshot(snapshotIdArg?: string) {
   }
 
   console.log(`Creating sandbox from snapshot ${snapshotId}`)
+  const resumeStartedAt = Date.now()
   const sandbox = await Sandbox.create(snapshotId, {
     timeoutMs: SANDBOX_TIMEOUT_MS,
     metadata: { project: "doodle", purpose: "app-sandbox" },
   })
+  console.log(`- Snapshot resumed in ${formatSeconds(Date.now() - resumeStartedAt)}`)
 
   await writeLastSnapshotId(snapshotId)
-  await withStep("Start Phoenix and OpenCode", () => startServices(sandbox))
+  await withStep("Start Phoenix and OpenCode", () =>
+    startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") }),
+  )
   printResult(sandbox)
 }
 
 async function upSandbox() {
   const explicitSnapshotId = getFlag("--snapshot-id")
+  const noFallback = hasFlag("--no-fallback")
   const lastSnapshotId = await readLastSnapshotId()
   const snapshotId = explicitSnapshotId ?? lastSnapshotId
 
@@ -619,12 +678,126 @@ async function upSandbox() {
       await resumeFromSnapshot(snapshotId)
       return
     } catch (error) {
+      if (noFallback) {
+        throw error
+      }
       const message = error instanceof Error ? error.message : String(error)
       console.log(`- Snapshot resume failed, falling back to full create: ${message}`)
     }
   }
 
   await createSandbox()
+}
+
+async function resumeLastSnapshot() {
+  const snapshotId = await readLastSnapshotId()
+  if (!snapshotId) {
+    throw new Error("No saved snapshot id found. Run create once first.")
+  }
+
+  await resumeFromSnapshot(snapshotId)
+}
+
+async function upManySandboxes() {
+  const count = parseCount()
+  const explicitSnapshotId = getFlag("--snapshot-id")
+  const lastSnapshotId = await readLastSnapshotId()
+  const snapshotId = explicitSnapshotId ?? lastSnapshotId
+
+  if (!snapshotId) {
+    throw new Error("Missing snapshot id. Run create once or pass --snapshot-id.")
+  }
+
+  console.log(`Starting ${count} sandbox(es) from snapshot ${snapshotId}`)
+
+  const launches = Array.from({ length: count }, async (_, index) => {
+    const sandbox = await Sandbox.create(snapshotId, {
+      timeoutMs: SANDBOX_TIMEOUT_MS,
+      metadata: { project: "doodle", purpose: `app-sandbox-${index + 1}` },
+    })
+
+    await startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") })
+
+    return {
+      index: index + 1,
+      sandbox,
+      appUrl: `https://${sandbox.getHost(APP_PORT)}`,
+      opencodeUrl: `https://${sandbox.getHost(OPENCODE_PORT)}`,
+    }
+  })
+
+  const results = await Promise.all(launches)
+
+  console.log("\nSandboxes ready")
+  for (const item of results) {
+    console.log(`- [${item.index}] Sandbox ID: ${item.sandbox.sandboxId}`)
+    console.log(`  App URL: ${item.appUrl}`)
+    console.log(`  OpenCode Web URL: ${item.opencodeUrl}`)
+  }
+}
+
+async function triggerOpenCodePrompt(
+  sandbox: Sandbox,
+  prompt: string,
+  index: number,
+  opts?: { model?: string; agent?: string },
+) {
+  const logPath = `${E2B_DIR}/logs/opencode-run-${Date.now()}-${index}.log`
+  const modelArg = opts?.model ? ` --model ${shQuote(opts.model)}` : ""
+  const agentArg = opts?.agent ? ` --agent ${shQuote(opts.agent)}` : ""
+
+  await runChecked(
+    sandbox,
+    `bash -lc 'cd ${REMOTE_ROOT} && nohup env MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- opencode run${modelArg}${agentArg} ${shQuote(prompt)} > ${shQuote(logPath)} 2>&1 &'`,
+  )
+
+  return logPath
+}
+
+async function runPromptInSandboxes() {
+  const count = parseCount()
+  const prompt = getPrompt()
+  const model = getFlag("--model")
+  const agent = getFlag("--agent")
+
+  const explicitSnapshotId = getFlag("--snapshot-id")
+  const lastSnapshotId = await readLastSnapshotId()
+  const snapshotId = explicitSnapshotId ?? lastSnapshotId
+
+  if (!snapshotId) {
+    throw new Error("Missing snapshot id. Run create once or pass --snapshot-id.")
+  }
+
+  console.log(`Starting ${count} sandbox(es) from snapshot ${snapshotId}`)
+  console.log(`Prompt: ${prompt}`)
+
+  const launches = Array.from({ length: count }, async (_, index) => {
+    const sandbox = await Sandbox.create(snapshotId, {
+      timeoutMs: SANDBOX_TIMEOUT_MS,
+      metadata: { project: "doodle", purpose: `prompt-run-${index + 1}` },
+    })
+
+    await startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") })
+    const logPath = await triggerOpenCodePrompt(sandbox, prompt, index + 1, { model, agent })
+
+    return {
+      index: index + 1,
+      sandboxId: sandbox.sandboxId,
+      appUrl: `https://${sandbox.getHost(APP_PORT)}`,
+      opencodeUrl: `https://${sandbox.getHost(OPENCODE_PORT)}`,
+      logPath,
+    }
+  })
+
+  const results = await Promise.all(launches)
+
+  console.log("\nPrompt sandboxes ready")
+  for (const item of results) {
+    console.log(`- [${item.index}] Sandbox ID: ${item.sandboxId}`)
+    console.log(`  App URL: ${item.appUrl}`)
+    console.log(`  OpenCode Web URL: ${item.opencodeUrl}`)
+    console.log(`  Prompt log: ${item.logPath}`)
+  }
 }
 
 async function createSnapshotFromSandbox() {
@@ -659,6 +832,21 @@ async function main() {
 
   if (command === "up") {
     await upSandbox()
+    return
+  }
+
+  if (command === "resume-last") {
+    await resumeLastSnapshot()
+    return
+  }
+
+  if (command === "up-many") {
+    await upManySandboxes()
+    return
+  }
+
+  if (command === "run-prompt") {
+    await runPromptInSandboxes()
     return
   }
 

@@ -43,6 +43,41 @@ E2B_TEMPLATE=doodle-sandbox fnox exec -- bun run sandbox.ts up
 
 `up` tries the last saved snapshot first and falls back to full `create` automatically.
 
+Resume from last snapshot only (fast path, no fallback):
+
+```bash
+fnox exec -- bun run sandbox.ts resume-last
+```
+
+or
+
+```bash
+fnox exec -- bun run sandbox.ts up --no-fallback
+```
+
+For the fastest startup, skip health waits:
+
+```bash
+fnox exec -- bun run sandbox.ts up --no-fallback --no-wait
+```
+
+Run OpenCode prompt in one or more fresh snapshot-based sandboxes (max 3):
+
+```bash
+E2B_OPENCODE_PROMPT="Implement task X" fnox exec -- bun run sandbox.ts run-prompt --count 2
+```
+
+Optional flags for prompt runs: `--model`, `--agent`, `--snapshot-id`.
+Add `--no-wait` to return immediately after process start.
+
+Start multiple concurrent sandboxes from snapshot (max 3):
+
+```bash
+fnox exec -- bun run sandbox.ts up-many --count 3
+```
+
+This path is intended for near-instant spin-up once a snapshot exists.
+
 This command:
 
 1. Creates a new E2B sandbox (from your template if provided)
@@ -97,6 +132,7 @@ The cleanup script targets sandboxes with metadata `project=doodle` by default.
 
 - `--template <template-or-snapshot-id>`: create from a specific template/snapshot
 - `--no-snapshot`: skip snapshot creation in `create`
+- `--count <1-3>` on `up-many`: number of concurrent sandboxes to launch
 - `--all` on cleanup: includes all projects and running sandboxes
 - `--any-age` on cleanup: ignores the age threshold
 

@@ -22,7 +22,7 @@ export const template = Template()
     "unzip",
     "neovim",
   ])
-  .runCmd("curl -fsSL https://mise.run | sh")
+  .runCmd("curl -fsSL https://mise.run/bash | sh")
   .runCmd("curl -fsSL https://get.docker.com | sh")
   .runCmd("/home/user/.local/bin/mise --version")
   .runCmd("docker --version");

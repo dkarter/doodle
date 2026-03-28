@@ -29,6 +29,14 @@ run = "dprint check"
 description = "Create and start E2B sandbox"
 run = "fnox exec -- sh -lc 'cd tools/e2b && E2B_TEMPLATE=${E2B_TEMPLATE:-doodle-sandbox} bun run sandbox.ts up'"
 
+[tasks.sandbox-fast]
+description = "Start sandbox from last snapshot only"
+run = "fnox exec -- sh -lc 'cd tools/e2b && bun run sandbox.ts resume-last --no-wait'"
+
+[tasks.sandbox-prompt]
+description = "Start sandbox(es) and run OpenCode prompt"
+run = "fnox exec -- sh -lc 'cd tools/e2b && bun run sandbox.ts run-prompt --count ${SANDBOX_COUNT:-1}'"
+
 [tasks.sandbox-template-build]
 description = "Build E2B high-memory template"
 run = "fnox exec -- sh -lc 'cd tools/e2b && bun run build-template.ts'"
