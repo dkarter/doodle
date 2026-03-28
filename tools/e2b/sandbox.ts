@@ -663,14 +663,17 @@ async function createSandbox() {
     snapshotId = snapshot.snapshotId;
     await writeLastSnapshotId(snapshot.snapshotId);
 
-    const resumed = await withStep("Resume fresh sandbox from snapshot", () =>
-      Sandbox.create(snapshot.snapshotId, {
-        timeoutMs: SANDBOX_TIMEOUT_MS,
-        metadata: { project: "doodle", purpose: "app-sandbox" },
-      })
+    const resumed = await withStep(
+      "Resume fresh sandbox from snapshot",
+      () =>
+        Sandbox.create(snapshot.snapshotId, {
+          timeoutMs: SANDBOX_TIMEOUT_MS,
+          metadata: { project: "doodle", purpose: "app-sandbox" },
+        }),
     );
-    await withStep("Start Phoenix and OpenCode (resumed)", () =>
-      startServices(resumed, { waitForHealth: true })
+    await withStep(
+      "Start Phoenix and OpenCode (resumed)",
+      () => startServices(resumed, { waitForHealth: true }),
     );
     activeSandbox = resumed;
   }
