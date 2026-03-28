@@ -26,8 +26,48 @@ description = "Checks formatting and fails on differences"
 run = "dprint check"
 
 [tasks.sandbox]
-description = "Start sandbox from last snapshot (fast)"
-run = "fnox exec -- sh -lc 'cd tools/e2b && bun run sandbox.ts resume-last --no-wait'"
+description = "Run an OpenCode prompt in a sandbox"
+usage = '''
+flag "--prompt <prompt>" help="Prompt text to run with OpenCode"
+flag "--recreate" help="Force full create plus snapshot before running prompt"
+flag "--snapshot-id <snapshot-id>" help="Use a specific snapshot ID"
+flag "--model <model>" help="OpenCode model override"
+flag "--agent <agent>" help="OpenCode agent override"
+flag "--wait" help="Wait for app/opencode health checks before returning"
+'''
+shell = "bash -c"
+run = '''
+set -euo pipefail
+
+if [ -z "${usage_prompt:-}" ]; then
+  echo "Missing --prompt"
+  exit 1
+fi
+
+args=(prompt --prompt "$usage_prompt")
+
+if [ "${usage_recreate:-false}" = "true" ]; then
+  args+=(--recreate)
+fi
+
+if [ -n "${usage_snapshot_id:-}" ]; then
+  args+=(--snapshot-id "$usage_snapshot_id")
+fi
+
+if [ -n "${usage_model:-}" ]; then
+  args+=(--model "$usage_model")
+fi
+
+if [ -n "${usage_agent:-}" ]; then
+  args+=(--agent "$usage_agent")
+fi
+
+if [ "${usage_wait:-false}" = "true" ]; then
+  args+=(--wait)
+fi
+
+fnox exec -- bun run ./tools/e2b/sandbox.ts "${args[@]}"
+'''
 
 [tasks.sandbox-refresh]
 description = "Rebuild sandbox and snapshot from template"
@@ -38,7 +78,7 @@ description = "Start sandbox from last snapshot only"
 run = "fnox exec -- sh -lc 'cd tools/e2b && bun run sandbox.ts resume-last --no-wait'"
 
 [tasks.sandbox-prompt]
-description = "Start sandbox(es) and run OpenCode prompt"
+description = "Legacy prompt runner for multiple sandboxes"
 run = "fnox exec -- sh -lc 'cd tools/e2b && bun run sandbox.ts run-prompt --count ${SANDBOX_COUNT:-1}'"
 
 [tasks.sandbox-template-build]

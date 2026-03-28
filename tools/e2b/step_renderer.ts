@@ -4,12 +4,15 @@ export class StepRenderer {
   private readonly enabled = Boolean(process.stdout.isTTY)
     && !["0", "false", "no"].includes((process.env.E2B_LIVE_UI ?? "").toLowerCase());
   private readonly maxActiveLogs = 7;
+  private readonly maxPlainLogsPerStep = 12;
   private renderedLines = 0;
   private steps: Array<{ title: string; status: StepStatus; detail?: string }> = [];
   private activeLogs: string[] = [];
+  private plainLogCount = 0;
 
   startStep(title: string) {
     this.steps.push({ title, status: "running" });
+    this.plainLogCount = 0;
 
     if (!this.enabled) {
       console.log(`- ${title}...`);
@@ -40,11 +43,20 @@ export class StepRenderer {
   }
 
   appendLog(line: string, isError = false) {
-    if (!this.enabled) return;
-    if (this.steps.length === 0) return;
-
     const text = line.trim();
     if (!text) return;
+
+    if (!this.enabled) {
+      if (this.plainLogCount < this.maxPlainLogsPerStep) {
+        console.log(`  ${isError ? "!" : ">"} ${text}`);
+      } else if (this.plainLogCount === this.maxPlainLogsPerStep) {
+        console.log("  > ...more logs omitted for this step");
+      }
+      this.plainLogCount += 1;
+      return;
+    }
+
+    if (this.steps.length === 0) return;
 
     const color = isError ? "\x1b[31m" : "\x1b[90m";
     this.activeLogs.push(`${color}${text}\x1b[0m`);

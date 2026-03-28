@@ -11,11 +11,12 @@ type CommandResult = {
 
 const APP_PORT = Number(process.env.E2B_APP_PORT ?? 4000);
 const OPENCODE_PORT = Number(process.env.E2B_OPENCODE_PORT ?? 4090);
+const SSH_PROXY_PORT = Number(process.env.E2B_SSH_PROXY_PORT ?? 8081);
 const PROJECT_ROOT = resolve(import.meta.dir, "../..");
 const REMOTE_ROOT = "/home/user/doodle";
 const E2B_DIR = `${REMOTE_ROOT}/.e2b`;
 const MISE_BIN = "/home/user/.local/bin/mise";
-const DEFAULT_TEMPLATE = process.env.E2B_TEMPLATE;
+const DEFAULT_TEMPLATE = process.env.E2B_TEMPLATE ?? "doodle-sandbox";
 const LAST_SNAPSHOT_FILE = resolve(import.meta.dir, ".last_snapshot_id");
 const stepUI = new StepRenderer();
 
@@ -52,6 +53,7 @@ function usage() {
   console.log(`
 Usage:
   bun run sandbox.ts up [--snapshot-id <snapshot-id>] [--no-fallback] [--no-wait]
+  bun run sandbox.ts prompt --prompt <text> [--snapshot-id <snapshot-id>] [--recreate] [--model <provider/model>] [--agent <agent>] [--wait]
   bun run sandbox.ts resume-last
   bun run sandbox.ts up-many [--count <1-3>] [--snapshot-id <snapshot-id>] [--no-wait]
   bun run sandbox.ts run-prompt [--count <1-3>] [--snapshot-id <snapshot-id>] [--prompt <text>] [--model <provider/model>] [--agent <agent>] [--no-wait]
@@ -63,6 +65,8 @@ Examples:
   fnox exec -- bun run sandbox.ts up
   fnox exec -- bun run sandbox.ts up --no-fallback
   fnox exec -- bun run sandbox.ts resume-last
+  fnox exec -- bun run sandbox.ts prompt --prompt "Fix flaky tests"
+  fnox exec -- bun run sandbox.ts prompt --prompt "Fix flaky tests" --recreate
   fnox exec -- bun run sandbox.ts up-many --count 3
   fnox exec -- bun run sandbox.ts run-prompt --count 2 --prompt "Fix flaky tests"
   fnox exec -- bun run sandbox.ts create
@@ -72,7 +76,7 @@ Examples:
 
 Notes:
   - E2B_API_KEY must be injected via fnox.
-  - Prompt command accepts --prompt or E2B_OPENCODE_PROMPT env var.
+  - Prompt command requires --prompt and defaults to snapshot fast path.
   - For enough memory, build a template and set E2B_TEMPLATE (or pass --template).
   - Snapshot IDs are stored in ${LAST_SNAPSHOT_FILE}.
   - The script uploads this repository into the sandbox at ${REMOTE_ROOT}.
@@ -101,11 +105,10 @@ function parseCount(): number {
 }
 
 function getPrompt(): string {
-  const prompt = getFlag("--prompt") ?? process.env.E2B_OPENCODE_PROMPT
-    ?? process.env.SANDBOX_PROMPT;
+  const prompt = getFlag("--prompt");
 
   if (!prompt || prompt.trim().length === 0) {
-    throw new Error("Missing prompt. Pass --prompt or set E2B_OPENCODE_PROMPT.");
+    throw new Error("Missing prompt. Pass --prompt <text>.");
   }
 
   return prompt;
@@ -468,11 +471,11 @@ async function setupProject(sandbox: Sandbox) {
   );
   await runChecked(
     sandbox,
-    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} MIX_ENV=prod mix deps.get`,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=prod mix deps.get`,
   );
   await runChecked(
     sandbox,
-    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} MIX_ENV=prod mix deps.compile`,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=prod mix deps.compile`,
     {
       timeoutMs: 30 * 60 * 1000,
     },
@@ -588,14 +591,36 @@ async function waitForHttp(
   throw new Error(`${label} did not become healthy on port ${port}`);
 }
 
+async function createSnapshotWithRetry(sandbox: Sandbox, attempts = 3) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await sandbox.createSnapshot({ requestTimeoutMs: 5 * 60 * 1000 });
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        const message = error instanceof Error ? error.message : String(error);
+        stepUI.appendLog(`Snapshot attempt ${attempt} failed: ${message}`, true);
+        await Bun.sleep(5_000);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 function printResult(sandbox: Sandbox, snapshotId?: string) {
   const appUrl = `https://${sandbox.getHost(APP_PORT)}`;
   const opencodeUrl = `https://${sandbox.getHost(OPENCODE_PORT)}`;
+  const sshCommand =
+    `ssh -o 'ProxyCommand=websocat --binary -B 65536 - wss://${SSH_PROXY_PORT}-%h.e2b.app' user@${sandbox.sandboxId}`;
 
   console.log("\nSandbox ready");
   console.log(`- Sandbox ID: ${sandbox.sandboxId}`);
   console.log(`- App URL: ${appUrl}`);
   console.log(`- OpenCode Web URL: ${opencodeUrl}`);
+  console.log(`- SSH: ${sshCommand}`);
   if (snapshotId) {
     console.log(`- Snapshot ID: ${snapshotId}`);
   }
@@ -617,17 +642,12 @@ async function startServices(sandbox: Sandbox, opts: { waitForHealth: boolean })
   await waitForHttp(sandbox, OPENCODE_PORT, "OpenCode Web");
 }
 
-async function createSandbox() {
+async function createSandbox(opts: { printResult?: boolean } = {}) {
   assertApiKey();
+  const shouldPrintResult = opts.printResult ?? true;
 
   const template = getFlag("--template") ?? DEFAULT_TEMPLATE;
   const shouldCreateSnapshot = !hasFlag("--no-snapshot");
-
-  if (!template) {
-    console.log(
-      "- No template provided. If Erlang build fails on low memory, build a template with more RAM and pass --template.",
-    );
-  }
 
   console.log("Creating sandbox");
   const createStartedAt = Date.now();
@@ -659,7 +679,7 @@ async function createSandbox() {
   let snapshotId: string | undefined;
   let activeSandbox = sandbox;
   if (shouldCreateSnapshot) {
-    const snapshot = await withStep("Create snapshot", () => sandbox.createSnapshot());
+    const snapshot = await withStep("Create snapshot", () => createSnapshotWithRetry(sandbox));
     snapshotId = snapshot.snapshotId;
     await writeLastSnapshotId(snapshot.snapshotId);
 
@@ -678,11 +698,20 @@ async function createSandbox() {
     activeSandbox = resumed;
   }
 
-  printResult(activeSandbox, snapshotId);
+  if (shouldPrintResult) {
+    printResult(activeSandbox, snapshotId);
+  }
+
+  return { sandbox: activeSandbox, snapshotId };
 }
 
-async function resumeFromSnapshot(snapshotIdArg?: string) {
+async function resumeFromSnapshot(
+  snapshotIdArg?: string,
+  opts: { printResult?: boolean; waitForHealth?: boolean } = {},
+) {
   assertApiKey();
+  const shouldPrintResult = opts.printResult ?? true;
+  const waitForHealth = opts.waitForHealth ?? !hasFlag("--no-wait");
 
   const snapshotId = snapshotIdArg ?? getFlag("--snapshot-id");
   if (!snapshotId) {
@@ -700,9 +729,13 @@ async function resumeFromSnapshot(snapshotIdArg?: string) {
   await writeLastSnapshotId(snapshotId);
   await withStep(
     "Start Phoenix and OpenCode",
-    () => startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") }),
+    () => startServices(sandbox, { waitForHealth }),
   );
-  printResult(sandbox);
+  if (shouldPrintResult) {
+    printResult(sandbox);
+  }
+
+  return sandbox;
 }
 
 async function upSandbox() {
@@ -784,13 +817,19 @@ async function triggerOpenCodePrompt(
   const logPath = `${E2B_DIR}/logs/opencode-run-${Date.now()}-${index}.log`;
   const modelArg = opts?.model ? ` --model ${shQuote(opts.model)}` : "";
   const agentArg = opts?.agent ? ` --agent ${shQuote(opts.agent)}` : "";
+  const cmd = `bash -lc ${
+    shQuote(
+      `env MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- opencode run${modelArg}${agentArg} ${
+        shQuote(prompt)
+      } > ${shQuote(logPath)} 2>&1`,
+    )
+  }`;
 
-  await runChecked(
-    sandbox,
-    `bash -lc 'cd ${REMOTE_ROOT} && nohup env MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- opencode run${modelArg}${agentArg} ${
-      shQuote(prompt)
-    } > ${shQuote(logPath)} 2>&1 &'`,
-  );
+  await sandbox.commands.run(cmd, {
+    cwd: REMOTE_ROOT,
+    timeoutMs: 5_000,
+    background: true,
+  });
 
   return logPath;
 }
@@ -841,6 +880,54 @@ async function runPromptInSandboxes() {
   }
 }
 
+async function runPrompt() {
+  const prompt = getPrompt();
+  const model = getFlag("--model");
+  const agent = getFlag("--agent");
+  const explicitSnapshotId = getFlag("--snapshot-id");
+  const recreate = hasFlag("--recreate");
+  const waitForHealth = hasFlag("--wait");
+
+  console.log(`Prompt: ${prompt}`);
+
+  let sandbox: Sandbox;
+
+  if (recreate) {
+    console.log("Recreate requested: building a fresh sandbox and snapshot");
+    const result = await createSandbox({ printResult: false });
+    sandbox = result.sandbox;
+  } else {
+    const snapshotId = explicitSnapshotId ?? await readLastSnapshotId();
+
+    if (snapshotId) {
+      try {
+        console.log(`Trying snapshot ${snapshotId}`);
+        sandbox = await resumeFromSnapshot(snapshotId, {
+          printResult: false,
+          waitForHealth,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.log(`- Snapshot resume failed, creating a fresh sandbox and snapshot: ${message}`);
+        const result = await createSandbox({ printResult: false });
+        sandbox = result.sandbox;
+      }
+    } else {
+      console.log("- No saved snapshot id found, creating a fresh sandbox and snapshot");
+      const result = await createSandbox({ printResult: false });
+      sandbox = result.sandbox;
+    }
+  }
+
+  const logPath = await withStep(
+    "Start OpenCode prompt",
+    () => triggerOpenCodePrompt(sandbox, prompt, 1, { model, agent }),
+  );
+
+  printResult(sandbox);
+  console.log(`- Prompt log: ${logPath}`);
+}
+
 async function createSnapshotFromSandbox() {
   assertApiKey();
 
@@ -851,7 +938,8 @@ async function createSnapshotFromSandbox() {
 
   console.log(`Connecting to sandbox ${sandboxId}`);
   const sandbox = await Sandbox.connect(sandboxId);
-  const snapshot = await sandbox.createSnapshot();
+  const snapshot = await createSnapshotWithRetry(sandbox);
+  await writeLastSnapshotId(snapshot.snapshotId);
 
   console.log("Snapshot created");
   console.log(`- Sandbox ID: ${sandboxId}`);
@@ -873,6 +961,11 @@ async function main() {
 
   if (command === "up") {
     await upSandbox();
+    return;
+  }
+
+  if (command === "prompt") {
+    await runPrompt();
     return;
   }
 

@@ -1,155 +1,103 @@
-# E2B Sandbox Scripts
+# E2B Sandbox Workflow
 
-These scripts create and run a full E2B sandbox for this Phoenix app, including:
+This project uses E2B sandboxes to run Phoenix + OpenCode with a snapshot-first startup path.
 
-- PostgreSQL via `docker compose` using Docker inside the sandbox
-- Phoenix app on port `4000`
-- OpenCode Web on port `4090`
-- Optional E2B snapshot generation for fast re-launch
+## Quickstart (mise-first)
 
-## 1) Install tool dependencies
+Run a prompt in a sandbox:
 
 ```bash
-bun install
+mise sandbox --prompt "implement feature X"
 ```
 
-Run this in `tools/e2b`.
+Default behavior:
 
-## 2) Build a higher-memory template (recommended)
+1. Try last snapshot (fast path)
+2. If snapshot is missing/invalid, create a fresh sandbox, build app, and create a new snapshot
+3. Run `opencode run` with your full prompt
+
+By default, prompt mode returns quickly and starts services in the background. Add `--wait` if you want blocking health checks.
+
+Force full rebuild + new snapshot first:
 
 ```bash
-fnox exec -- bun run build-template.ts
+mise sandbox --prompt "implement feature X" --recreate
 ```
 
-Defaults:
-
-- Template name: `doodle-sandbox`
-- CPU: `2`
-- Memory: `4096` MB
-
-The template pre-installs build dependencies, `mise`, and Docker. Project tools (Erlang/Elixir/OpenCode) are then installed by `mise install` from this repo's `mise.toml` during sandbox provisioning.
-
-Optional overrides:
+Use a specific snapshot:
 
 ```bash
-E2B_TEMPLATE_NAME=doodle-sandbox E2B_TEMPLATE_CPU=2 E2B_TEMPLATE_MEMORY_MB=4096 fnox exec -- bun run build-template.ts
+mise sandbox --prompt "implement feature X" --snapshot-id <snapshot-id>
 ```
 
-## 3) Create a sandbox and snapshot
+## Task argument completion and help
+
+The `sandbox` mise task defines a `usage` spec so shell completion/help works for:
+
+- `--prompt <prompt>`
+- `--recreate`
+- `--snapshot-id <snapshot-id>`
+- `--model <model>`
+- `--agent <agent>`
+- `--wait`
+
+Inspect parsed task usage:
 
 ```bash
-E2B_TEMPLATE=doodle-sandbox fnox exec -- bun run sandbox.ts up
+mise tasks info sandbox --json
 ```
 
-`up` tries the last saved snapshot first and falls back to full `create` automatically.
-
-Resume from last snapshot only (fast path, no fallback):
+Validate task config:
 
 ```bash
-fnox exec -- bun run sandbox.ts resume-last
+mise tasks validate
 ```
 
-or
+## Other sandbox tasks
 
 ```bash
-fnox exec -- bun run sandbox.ts up --no-fallback
+mise sandbox-fast             # resume last snapshot only
+mise sandbox-refresh          # full create + snapshot
+mise sandbox-template-build   # build the E2B template
+mise sandbox-cleanup          # dry-run cleanup
+mise sandbox-cleanup-exec     # execute cleanup
+mise sandbox-clear-snapshot   # clear local snapshot pointer
 ```
 
-For the fastest startup, skip health waits:
+## SSH access
+
+When a sandbox is ready, output includes:
 
 ```bash
-fnox exec -- bun run sandbox.ts up --no-fallback --no-wait
+ssh -o 'ProxyCommand=websocat --binary -B 65536 - wss://8081-%h.e2b.app' user@<sandbox-id>
 ```
 
-Mise task defaults:
+Requirements:
 
-- `mise sandbox`: fast snapshot resume
-- `mise sandbox-refresh`: full rebuild + fresh snapshot
+- Local `websocat` installed (e.g. `brew install websocat`)
+- Template built with SSH support (`openssh-server` + `websocat` proxy)
 
-Run OpenCode prompt in one or more fresh snapshot-based sandboxes (max 3):
+## Direct script usage (internal/developer detail)
+
+If you need lower-level control, use:
 
 ```bash
-E2B_OPENCODE_PROMPT="Implement task X" fnox exec -- bun run sandbox.ts run-prompt --count 2
+fnox exec -- bun run ./tools/e2b/sandbox.ts help
 ```
 
-Optional flags for prompt runs: `--model`, `--agent`, `--snapshot-id`.
-Add `--no-wait` to return immediately after process start.
+Primary command set:
 
-Start multiple concurrent sandboxes from snapshot (max 3):
-
-```bash
-fnox exec -- bun run sandbox.ts up-many --count 3
-```
-
-This path is intended for near-instant spin-up once a snapshot exists.
-
-This command:
-
-1. Creates a new E2B sandbox (from your template if provided)
-2. Uploads this repository into `/home/user/doodle`
-3. Verifies the template has required tooling
-4. Builds/migrates the app using `mise x`
-5. Starts Phoenix + OpenCode Web
-6. Prints preview URLs
-7. Creates a snapshot (unless `--no-snapshot` is used)
-
-## 4) Resume from a snapshot
-
-```bash
-fnox exec -- bun run sandbox.ts resume --snapshot-id <snapshot-id>
-```
-
-## 5) Snapshot an existing running sandbox
-
-```bash
-fnox exec -- bun run sandbox.ts snapshot --sandbox-id <sandbox-id>
-```
-
-## 6) Clean up unused sandboxes
-
-Dry-run (no deletion):
-
-```bash
-fnox exec -- bun run cleanup.ts
-```
-
-Delete matching sandboxes older than 24h:
-
-```bash
-fnox exec -- bun run cleanup.ts --hours 24 --execute
-```
-
-Delete across all projects (including running sandboxes):
-
-```bash
-fnox exec -- bun run cleanup.ts --all --execute
-```
-
-Delete sandboxes regardless of age (including new ones):
-
-```bash
-fnox exec -- bun run cleanup.ts --all --any-age --execute
-```
-
-The cleanup script targets sandboxes with metadata `project=doodle` by default.
-
-## Useful flags
-
-- `--template <template-or-snapshot-id>`: create from a specific template/snapshot
-- `--no-snapshot`: skip snapshot creation in `create`
-- `--count <1-3>` on `up-many`: number of concurrent sandboxes to launch
-- `--all` on cleanup: includes all projects and running sandboxes
-- `--any-age` on cleanup: ignores the age threshold
+- `prompt --prompt <text> [--recreate] [--snapshot-id <id>] [--wait]`
+- `up [--snapshot-id <id>] [--no-fallback]`
+- `create [--template <template>]`
+- `resume --snapshot-id <id>`
+- `snapshot --sandbox-id <id>`
+- `up-many --count <1-3>`
 
 ## Notes
 
-- The script expects `E2B_API_KEY` in env. Use `fnox exec -- ...` to inject it.
-- Sandbox timeout is set to 1 hour (E2B API limit for this flow).
-- The sandbox should be created from a higher-memory template to allow `mise install` for Erlang/Elixir.
-- `PHX_HOST` is set to the E2B host automatically to avoid redirects to `example.com`.
-- OpenCode is started with: `opencode web --hostname 0.0.0.0 --port 4090`
-- Logs are stored in `/home/user/doodle/.e2b/logs` inside sandbox.
-- The sandbox starts `dockerd` and then runs `docker compose -f docker-compose.yml up -d postgres`.
-- OpenCode and Mix are executed through `mise x` so versions come from `mise.toml`.
-- The script no longer installs system tooling during sandbox creation; missing prerequisites fail fast with a template rebuild hint.
-- Sandbox provisioning runs `mise install` (from repo `mise.toml`) after template verification.
+- `E2B_API_KEY` must be provided via `fnox exec`.
+- Default template alias is `doodle-sandbox`.
+- Snapshot pointer is stored in `tools/e2b/.last_snapshot_id`.
+- Live step UI is kept for TTY output; non-TTY output is now condensed and practical.
+- Logs inside sandbox: `/home/user/doodle/.e2b/logs`.
