@@ -1,6 +1,6 @@
 import Sandbox from "e2b";
-import { readdir, readFile, writeFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { StepRenderer } from "./step_renderer";
 
 type CommandResult = {
@@ -18,36 +18,14 @@ const E2B_DIR = `${REMOTE_ROOT}/.e2b`;
 const MISE_BIN = "/home/user/.local/bin/mise";
 const DEFAULT_TEMPLATE = process.env.E2B_TEMPLATE ?? "doodle-sandbox";
 const LAST_SNAPSHOT_FILE = resolve(import.meta.dir, ".last_snapshot_id");
+const E2B_GIT_USERNAME = process.env.E2B_GIT_USERNAME ?? "x-access-token";
+const E2B_GIT_TOKEN = process.env.E2B_GIT_TOKEN ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
 const stepUI = new StepRenderer();
+const UNSAFE_REMOTE_ROOTS = new Set(["/", "/home", "/home/user"]);
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const SANDBOX_TIMEOUT_MS = 60 * 60 * 1000;
 const ELIXIR_ERL_OPTIONS = "+fnu";
-
-const EXCLUDED_DIRECTORIES = new Set([
-  ".git",
-  ".elixir_ls",
-  ".idea",
-  ".vscode",
-  "_build",
-  "deps",
-  "node_modules",
-  "tmp",
-  "cover",
-]);
-
-const EXCLUDED_FILE_SUFFIXES = [
-  ".beam",
-  ".ez",
-  ".tar",
-  ".gz",
-  ".zip",
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".gif",
-  ".webp",
-];
 
 function usage() {
   console.log(`
@@ -79,7 +57,8 @@ Notes:
   - Prompt command requires --prompt and defaults to snapshot fast path.
   - For enough memory, build a template and set E2B_TEMPLATE (or pass --template).
   - Snapshot IDs are stored in ${LAST_SNAPSHOT_FILE}.
-  - The script uploads this repository into the sandbox at ${REMOTE_ROOT}.
+  - The script clones this repository into the sandbox at ${REMOTE_ROOT}.
+  - Snapshot-based launches pull latest commits in that repo before starting services.
   - It starts Phoenix and OpenCode Web, then prints both preview URLs.
 `);
 }
@@ -286,60 +265,118 @@ async function withStep<T>(title: string, action: () => Promise<T>): Promise<T> 
   }
 }
 
-async function collectFiles(localRoot: string): Promise<string[]> {
-  const files: string[] = [];
+async function runLocalGit(
+  localRoot: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const process = Bun.spawn(["git", "-C", localRoot, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
 
-  async function walk(dir: string) {
-    const entries = await readdir(dir, { withFileTypes: true });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ]);
 
-    for (const entry of entries) {
-      const absolute = join(dir, entry.name);
-      const relativePath = relative(localRoot, absolute);
-      const segments = relativePath.split("/");
-
-      if (segments.some((part) => EXCLUDED_DIRECTORIES.has(part))) {
-        continue;
-      }
-
-      if (entry.isDirectory()) {
-        await walk(absolute);
-        continue;
-      }
-
-      if (EXCLUDED_FILE_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) {
-        continue;
-      }
-
-      files.push(absolute);
-    }
-  }
-
-  await walk(localRoot);
-  return files;
+  return { stdout, stderr, exitCode };
 }
 
-async function uploadProject(sandbox: Sandbox, localRoot: string) {
-  stepUI.appendLog(`Uploading project from ${localRoot}`);
-  await runChecked(sandbox, `mkdir -p ${REMOTE_ROOT}`);
-
-  const files = await collectFiles(localRoot);
-  const batchSize = 100;
-
-  for (let i = 0; i < files.length; i += batchSize) {
-    const batch = files.slice(i, i + batchSize);
-
-    const writes = await Promise.all(
-      batch.map(async (filePath) => {
-        const rel = relative(localRoot, filePath).split("\\").join("/");
-        const remotePath = `${REMOTE_ROOT}/${rel}`;
-        const data = await Bun.file(filePath).arrayBuffer();
-        return { path: remotePath, data };
-      }),
-    );
-
-    await sandbox.files.write(writes);
-    stepUI.appendLog(`uploaded ${Math.min(i + batchSize, files.length)}/${files.length}`);
+function normalizeGitRemoteForClone(remoteUrl: string): string {
+  const sshScpLike = remoteUrl.match(/^git@([^:]+):(.+)$/);
+  if (sshScpLike) {
+    return `https://${sshScpLike[1]}/${sshScpLike[2]}`;
   }
+
+  const sshUrl = remoteUrl.match(/^ssh:\/\/git@([^/]+)\/(.+)$/);
+  if (sshUrl) {
+    return `https://${sshUrl[1]}/${sshUrl[2]}`;
+  }
+
+  return remoteUrl;
+}
+
+function gitAuthOptsForRemote(remoteUrl: string): {
+  username: string;
+  password: string;
+} | undefined {
+  if (!remoteUrl.startsWith("https://") || !E2B_GIT_TOKEN) {
+    return undefined;
+  }
+
+  return {
+    username: E2B_GIT_USERNAME,
+    password: E2B_GIT_TOKEN,
+  };
+}
+
+async function cloneProjectFromGit(sandbox: Sandbox, localRoot: string) {
+  const remoteResult = await runLocalGit(localRoot, ["config", "--get", "remote.origin.url"]);
+  const remoteUrl = remoteResult.stdout.trim();
+
+  if (remoteResult.exitCode !== 0 || !remoteUrl) {
+    const details = remoteResult.stderr.trim() || "(no output)";
+    throw new Error(`Unable to resolve git remote origin URL from ${localRoot}.\n${details}`);
+  }
+
+  const branchResult = await runLocalGit(localRoot, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = branchResult.stdout.trim();
+  const detachedHead = branch === "HEAD";
+
+  const statusResult = await runLocalGit(localRoot, ["status", "--porcelain"]);
+  const dirty = statusResult.stdout.trim().length > 0;
+  if (dirty) {
+    stepUI.appendLog(
+      "Local working tree has uncommitted changes; sandbox clone uses only commits available in the remote.",
+      true,
+    );
+  }
+
+  const cloneUrl = normalizeGitRemoteForClone(remoteUrl);
+  const gitAuth = gitAuthOptsForRemote(cloneUrl);
+
+  stepUI.appendLog(`Cloning repository ${remoteUrl}`);
+  const remoteRootExists = await sandbox.files.exists(REMOTE_ROOT);
+  if (remoteRootExists) {
+    const remoteRoot = String(REMOTE_ROOT);
+    if (UNSAFE_REMOTE_ROOTS.has(remoteRoot)) {
+      throw new Error(`Refusing to remove unsafe remote path: ${REMOTE_ROOT}`);
+    }
+    await runChecked(sandbox, `rm -rf ${shQuote(REMOTE_ROOT)}`);
+  }
+
+  await sandbox.git.clone(cloneUrl, {
+    path: REMOTE_ROOT,
+    branch: detachedHead ? undefined : branch,
+    ...gitAuth,
+  });
+
+  if (detachedHead) {
+    stepUI.appendLog("Local HEAD is detached; cloned repository default branch in sandbox.", true);
+  }
+}
+
+async function pullProjectFromGit(sandbox: Sandbox) {
+  if (!(await sandbox.files.exists(REMOTE_ROOT))) {
+    throw new Error(
+      `Project directory ${REMOTE_ROOT} is missing in snapshot sandbox; recreate the snapshot with 'bun run sandbox.ts create'.`,
+    );
+  }
+
+  const originUrl = await sandbox.git.remoteGet(REMOTE_ROOT, "origin");
+  if (!originUrl) {
+    throw new Error(
+      `Repository at ${REMOTE_ROOT} is missing origin remote; recreate the snapshot.`,
+    );
+  }
+
+  const gitAuth = gitAuthOptsForRemote(originUrl);
+
+  stepUI.appendLog(`Pulling latest commits from ${originUrl}`);
+  await sandbox.git.pull(REMOTE_ROOT, {
+    ...gitAuth,
+  });
 }
 
 async function readLastSnapshotId(): Promise<string | null> {
@@ -667,7 +704,7 @@ async function createSandbox(opts: { printResult?: boolean } = {}) {
   const info = await sandbox.getInfo();
   console.log(`- Sandbox resources: ${info.cpuCount} CPU / ${info.memoryMB} MB RAM`);
 
-  await withStep("Upload project", () => uploadProject(sandbox, PROJECT_ROOT));
+  await withStep("Clone project", () => cloneProjectFromGit(sandbox, PROJECT_ROOT));
   await withStep("Verify template prerequisites", () => installSystemDependencies(sandbox));
   await withStep("Start PostgreSQL", () => setupDatabaseWithDockerCompose(sandbox));
   await withStep("Build app and migrate", () => setupProject(sandbox));
@@ -727,6 +764,7 @@ async function resumeFromSnapshot(
   console.log(`- Snapshot resumed in ${formatSeconds(Date.now() - resumeStartedAt)}`);
 
   await writeLastSnapshotId(snapshotId);
+  await withStep("Update project from git", () => pullProjectFromGit(sandbox));
   await withStep(
     "Start Phoenix and OpenCode",
     () => startServices(sandbox, { waitForHealth }),
@@ -788,6 +826,7 @@ async function upManySandboxes() {
       metadata: { project: "doodle", purpose: `app-sandbox-${index + 1}` },
     });
 
+    await pullProjectFromGit(sandbox);
     await startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") });
 
     return {
@@ -857,6 +896,7 @@ async function runPromptInSandboxes() {
       metadata: { project: "doodle", purpose: `prompt-run-${index + 1}` },
     });
 
+    await pullProjectFromGit(sandbox);
     await startServices(sandbox, { waitForHealth: !hasFlag("--no-wait") });
     const logPath = await triggerOpenCodePrompt(sandbox, prompt, index + 1, { model, agent });
 
