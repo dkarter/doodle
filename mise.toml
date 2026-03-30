@@ -26,9 +26,9 @@ description = "Checks formatting and fails on differences"
 run = "dprint check"
 
 [tasks.sandbox]
-description = "Run an OpenCode prompt in a sandbox"
+description = "Start a sandbox (optionally run an OpenCode prompt)"
 usage = '''
-flag "--prompt <prompt>" help="Prompt text to run with OpenCode"
+flag "--prompt <prompt>" help="Optional prompt text to run with OpenCode"
 flag "--recreate" help="Force full create plus snapshot before running prompt"
 flag "--snapshot-id <snapshot-id>" help="Use a specific snapshot ID"
 flag "--model <model>" help="OpenCode model override"
@@ -39,31 +39,31 @@ shell = "bash -c"
 run = '''
 set -euo pipefail
 
-if [ -z "${usage_prompt:-}" ]; then
-  echo "Missing --prompt"
-  exit 1
+if [ -n "${usage_prompt:-}" ]; then
+  args=(prompt --prompt "$usage_prompt")
+
+  if [ "${usage_recreate:-false}" = "true" ]; then
+    args+=(--recreate)
+  fi
+
+  if [ -n "${usage_model:-}" ]; then
+    args+=(--model "$usage_model")
+  fi
+
+  if [ -n "${usage_agent:-}" ]; then
+    args+=(--agent "$usage_agent")
+  fi
+
+  if [ "${usage_wait:-false}" = "true" ]; then
+    args+=(--wait)
+  fi
+else
+  args=(up)
 fi
 
-args=(prompt --prompt "$usage_prompt")
-
-if [ "${usage_recreate:-false}" = "true" ]; then
-  args+=(--recreate)
-fi
 
 if [ -n "${usage_snapshot_id:-}" ]; then
   args+=(--snapshot-id "$usage_snapshot_id")
-fi
-
-if [ -n "${usage_model:-}" ]; then
-  args+=(--model "$usage_model")
-fi
-
-if [ -n "${usage_agent:-}" ]; then
-  args+=(--agent "$usage_agent")
-fi
-
-if [ "${usage_wait:-false}" = "true" ]; then
-  args+=(--wait)
 fi
 
 fnox exec -- bun run ./tools/e2b/sandbox.ts "${args[@]}"
