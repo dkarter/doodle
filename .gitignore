@@ -37,3 +37,7 @@ npm-debug.log
 /tools/e2b/node_modules/
 /tools/e2b/.env
 /tools/e2b/.last_snapshot_id
+
+
+# ignore server logs
+.e2b/
