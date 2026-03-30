@@ -10,6 +10,7 @@ fnox = "latest"
 gitleaks = "latest"
 lefthook = "latest"
 pitchfork = "latest"
+"github:vi/websocat" = { version = "latest", bin = "websocat" }
 
 [settings]
 npm.bun = true
