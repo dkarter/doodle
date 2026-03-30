@@ -14,6 +14,7 @@ pitchfork = "latest"
 
 [settings]
 npm.bun = true
+erlang.compile = false
 
 [hooks]
 postinstall = "lefthook install"
