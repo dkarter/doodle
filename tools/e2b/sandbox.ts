@@ -508,22 +508,22 @@ async function setupProject(sandbox: Sandbox) {
   );
   await runChecked(
     sandbox,
-    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=prod mix deps.get`,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=dev mix deps.get`,
   );
   await runChecked(
     sandbox,
-    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=prod mix deps.compile`,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=dev mix deps.compile`,
     {
       timeoutMs: 30 * 60 * 1000,
     },
   );
   await runChecked(
     sandbox,
-    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=prod mix compile`,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=dev mix compile`,
   );
   await runChecked(
     sandbox,
-    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=prod mix assets.deploy`,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 MIX_ENV=dev mix assets.setup`,
     {
       timeoutMs: 20 * 60 * 1000,
     },
@@ -582,7 +582,7 @@ done
 docker compose -f "$APP_DIR/docker-compose.yml" up -d postgres >/dev/null 2>&1 || true
 
 if ! pgrep -f "mix phx.server" >/dev/null 2>&1; then
-  nohup bash -lc "cd $APP_DIR && MISE_JOBS=1 ${MISE_BIN} x -C $APP_DIR -- env ELIXIR_ERL_OPTIONS=$ELIXIR_ERL_OPTIONS DISABLE_FORCE_SSL=$DISABLE_FORCE_SSL DISABLE_WS_ORIGIN_CHECK=$DISABLE_WS_ORIGIN_CHECK PHX_SERVER=true MIX_ENV=prod PORT=$APP_PORT PHX_HOST=$PHX_HOST DATABASE_URL=$DATABASE_URL SECRET_KEY_BASE=$SECRET_KEY_BASE mix phx.server" > "$LOG_DIR/phoenix.log" 2>&1 &
+  nohup bash -lc "cd $APP_DIR && MISE_JOBS=1 ${MISE_BIN} x -C $APP_DIR -- env ELIXIR_ERL_OPTIONS=$ELIXIR_ERL_OPTIONS DISABLE_FORCE_SSL=$DISABLE_FORCE_SSL DISABLE_WS_ORIGIN_CHECK=$DISABLE_WS_ORIGIN_CHECK PHX_SERVER=true MIX_ENV=dev PORT=$APP_PORT PHX_HOST=$PHX_HOST DATABASE_URL=$DATABASE_URL SECRET_KEY_BASE=$SECRET_KEY_BASE mix phx.server" > "$LOG_DIR/phoenix.log" 2>&1 &
 fi
 
 if ! pgrep -f "opencode web --hostname 0.0.0.0 --port $OPENCODE_PORT" >/dev/null 2>&1; then
@@ -598,7 +598,7 @@ fi
   stepUI.appendLog("Running migrations");
   await runChecked(
     sandbox,
-    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 SECRET_KEY_BASE=${secretKeyBase} DATABASE_URL=ecto://postgres:postgres@localhost/doodle_dev MIX_ENV=prod mix ecto.migrate`,
+    `MISE_JOBS=1 ${MISE_BIN} x -C ${REMOTE_ROOT} -- env ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS} DISABLE_FORCE_SSL=1 DISABLE_WS_ORIGIN_CHECK=1 SECRET_KEY_BASE=${secretKeyBase} DATABASE_URL=ecto://postgres:postgres@localhost/doodle_dev MIX_ENV=dev mix ecto.migrate`,
   );
 }
 
