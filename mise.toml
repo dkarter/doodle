@@ -30,7 +30,7 @@ run = "dprint check"
 description = "Start a sandbox (optionally run an OpenCode prompt)"
 usage = '''
 flag "--prompt <prompt>" help="Optional prompt text to run with OpenCode"
-flag "--recreate" help="Force full create plus snapshot before running prompt"
+flag "--recreate" help="Force full create from template/snapshot source"
 flag "--snapshot-id <snapshot-id>" help="Use a specific snapshot ID"
 flag "--model <model>" help="OpenCode model override"
 flag "--agent <agent>" help="OpenCode agent override"
@@ -59,7 +59,11 @@ if [ -n "${usage_prompt:-}" ]; then
     args+=(--wait)
   fi
 else
-  args=(up)
+  if [ "${usage_recreate:-false}" = "true" ]; then
+    args=(create)
+  else
+    args=(up)
+  fi
 fi
 
 
