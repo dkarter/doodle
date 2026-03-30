@@ -92,12 +92,56 @@ description = "Build E2B high-memory template"
 run = "fnox exec -- sh -lc 'cd tools/e2b && bun run build-template.ts'"
 
 [tasks.sandbox-cleanup]
-description = "Dry-run cleanup of old E2B sandboxes"
-run = "fnox exec -- sh -lc 'cd tools/e2b && bun run cleanup.ts'"
+description = "Cleanup E2B sandboxes (dry-run by default)"
+usage = '''
+flag "--hours <hours>" help="Only include sandboxes older than N hours (default 24)"
+flag "--project <name>" help="Project metadata filter (default doodle)"
+flag "--execute" help="Actually kill matched sandboxes"
+flag "--include-running" help="Include running sandboxes"
+flag "--all-projects" help="Ignore project metadata filter"
+flag "--all" help="Shortcut for --all-projects + --include-running"
+flag "--any-age" help="Ignore age filtering"
+'''
+shell = "bash -c"
+run = '''
+set -euo pipefail
+
+args=()
+
+if [ -n "${usage_hours:-}" ]; then
+  args+=(--hours "$usage_hours")
+fi
+
+if [ -n "${usage_project:-}" ]; then
+  args+=(--project "$usage_project")
+fi
+
+if [ "${usage_execute:-false}" = "true" ]; then
+  args+=(--execute)
+fi
+
+if [ "${usage_include_running:-false}" = "true" ]; then
+  args+=(--include-running)
+fi
+
+if [ "${usage_all_projects:-false}" = "true" ]; then
+  args+=(--all-projects)
+fi
+
+if [ "${usage_all:-false}" = "true" ]; then
+  args+=(--all)
+fi
+
+if [ "${usage_any_age:-false}" = "true" ]; then
+  args+=(--any-age)
+fi
+
+fnox exec -- sh -lc 'cd tools/e2b && bun run cleanup.ts "$@"' sh "${args[@]}"
+'''
 
 [tasks.sandbox-cleanup-exec]
 description = "Delete old E2B sandboxes"
-run = "fnox exec -- sh -lc 'cd tools/e2b && bun run cleanup.ts --execute --include-running'"
+run = "mise run sandbox-cleanup --execute --include-running"
 
 [tasks.sandbox-clear-snapshot]
 description = "Clear saved E2B snapshot pointer"
