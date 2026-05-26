@@ -430,6 +430,8 @@ async function installSystemDependencies(sandbox: Sandbox) {
   await runChecked(sandbox, `MISE_JOBS=1 ${MISE_BIN} install`, {
     cwd: REMOTE_ROOT,
     timeoutMs: 50 * 60 * 1000,
+    // Debian 12 has no precompiled Erlang from mise; compile from source.
+    envs: { MISE_ERLANG_COMPILE: "true" },
   });
 }
 
